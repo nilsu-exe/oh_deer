@@ -14,9 +14,9 @@ from pydantic import BaseModel, ConfigDict, Field
 if __package__ in (None, ""):
     # Support python app/main.py as well as importing app.main.
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-    from app import config, pipeline, processing, spectral_id, targets
+    from app import config, overlays, pipeline, processing, spectral_id, targets
 else:
-    from . import config, pipeline, processing, spectral_id, targets
+    from . import config, overlays, pipeline, processing, spectral_id, targets
 
 logging.basicConfig(level=logging.INFO)
 
@@ -149,6 +149,36 @@ def spectral_features():
     """Reference feature library and the 102-channel grid used by the analysis."""
     return {"features": [f.to_dict() for f in spectral_id.SPECTRAL_FEATURES],
             "channels": spectral_id.CHANNELS}
+
+
+@app.get("/api/overlays")
+def catalog_overlays(
+    ra: Optional[Union[float, str]] = None,
+    dec: Optional[Union[float, str]] = None,
+    target: Optional[str] = None,
+    epoch: Optional[float] = None,
+    fov: float = Query(0.1, gt=0.005, le=1.0, description="Field of view, degrees"),
+    scale: float = Query(config.PIXEL_SCALE_ARCSEC, ge=1.0, le=30.0),
+    catalogs: str = Query("gaia,wise", description="Comma-separated catalogs: 'gaia', 'wise'"),
+    max_sources: int = Query(150, ge=1, le=500),
+):
+    """Overlay astronomical catalog sources (Gaia DR3 & AllWISE) onto the frame pixel grid."""
+    ra_deg, dec_deg, info = _center(ra, dec, target, epoch)
+    cat_list = [c.strip().lower() for c in catalogs.split(",") if c.strip()]
+    invalid = [c for c in cat_list if c not in ("gaia", "wise")]
+    if invalid or not cat_list:
+        raise HTTPException(status_code=422, detail="catalogs must be a comma-separated subset of 'gaia,wise'.")
+    result = overlays.build_overlays(
+        ra_deg,
+        dec_deg,
+        fov,
+        scale=scale,
+        epoch=epoch,
+        catalogs=cat_list,
+        max_sources=max_sources,
+    )
+    result["resolved"] = info
+    return result
 
 
 @app.get("/api/pixel_to_sky")

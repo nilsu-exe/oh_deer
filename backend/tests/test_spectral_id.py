@@ -5,7 +5,7 @@ import numpy as np
 import pytest
 from pydantic import ValidationError
 
-from app import main, pipeline, spectral_id, targets
+from app import main, overlays, pipeline, spectral_id, targets
 from synth import make_mef
 
 ICES_AND_BRG = [(3.05, 0.30, -0.30), (4.27, 0.08, -0.35), (2.166, 0.05, +0.60)]
@@ -238,5 +238,84 @@ def test_coadds_epoch_diff_and_candidate_detection(monkeypatch):
     assert res_first["query"]["stretch"] == "linear"
     res_prev = pipeline.build_frames(ra0, dec0, 0.1, 2, subtract="prev")
     assert res_prev["query"]["stretch"] == "linear"
+
+
+def test_gaia_and_wise_overlays(monkeypatch):
+    ra0, dec0 = 133.79513, -7.245147
+    fake_gaia = [
+        {
+            "source_id": "1234567890",
+            "ra": ra0 + 0.01,
+            "dec": dec0 + 0.01,
+            "g_mag": 12.4,
+            "bp_mag": 13.1,
+            "rp_mag": 11.6,
+            "bp_rp": 1.5,
+            "pm_ra_masyr": -798.6,
+            "pm_dec_masyr": 10328.1,
+            "parallax_mas": 546.98,
+        }
+    ]
+    fake_wise = [
+        # Optical star also seen in WISE
+        {
+            "designation": "J085513.20-071406.5",
+            "ra": ra0 + 0.01,
+            "dec": dec0 + 0.01,
+            "w1_mag": 9.8,
+            "w2_mag": 9.7,
+            "w3_mag": 9.6,
+            "w4_mag": 9.0,
+            "w1_snr": 45.0,
+            "w2_snr": 42.0,
+            "pm_ra_masyr": -800.0,
+            "pm_dec_masyr": 10300.0,
+        },
+        # Cold brown dwarf (WISE 0855-like): bright in W2, red W1-W2, NO Gaia optical counterpart!
+        {
+            "designation": "J085510.83-071442.5",
+            "ra": ra0,
+            "dec": dec0,
+            "w1_mag": 17.8,
+            "w2_mag": 13.9,
+            "w3_mag": 11.5,
+            "w4_mag": 9.0,
+            "w1_snr": 6.0,
+            "w2_snr": 28.0,
+            "pm_ra_masyr": -8120.0,
+            "pm_dec_masyr": 700.0,
+        },
+    ]
+    monkeypatch.setattr(overlays, "fetch_gaia_sources", lambda ra, dec, rad, max_sources=150: fake_gaia)
+    monkeypatch.setattr(overlays, "fetch_wise_sources", lambda ra, dec, rad, max_sources=150: fake_wise)
+
+    out = main.catalog_overlays(
+        ra="08h55m10.831s",
+        dec="-7d14m42.53s",
+        fov=0.1,
+        scale=6.15,
+        catalogs="gaia,wise",
+        max_sources=150,
+    )
+    assert out["counts"]["gaia_dr3"] == 1
+    assert out["counts"]["wise"] == 2
+    assert out["counts"]["high_proper_motion"] == 1
+    assert out["counts"]["ir_only_candidates"] == 1
+
+    g0 = out["gaia"][0]
+    assert g0["distance_pc"] == pytest.approx(1000.0 / 546.98, abs=0.05)
+    assert g0["distance_ly"] == pytest.approx(5.96, abs=0.05)
+    assert g0["is_high_proper_motion"] is True
+    assert g0["dy_px_per_yr"] < 0  # +pm_dec (north) -> -y in top-left PNG coordinates
+
+    ir_only = out["ir_only_candidates"][0]
+    assert ir_only["designation"] == "J085510.83-071442.5"
+    assert ir_only["gaia_match"] is False
+    assert ir_only["w1_w2_color"] == pytest.approx(3.9, abs=0.01)
+    assert ir_only["w2_flux_mjy"] > ir_only["w1_flux_mjy"]
+    # Located right at the center of the 59x59 grid (x=29, y=29)
+    assert ir_only["x"] == pytest.approx(29.0, abs=0.5)
+    assert ir_only["y"] == pytest.approx(29.0, abs=0.5)
+
 
 

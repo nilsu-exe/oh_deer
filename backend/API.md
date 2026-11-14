@@ -137,6 +137,22 @@ Notes:
 The reference feature library (rest wavelength, type, FWHM, continuum windows, category) and the
 102-channel grid.
 
+## `GET /api/overlays`: Gaia DR3 & AllWISE catalog overlays
+
+Params: `ra`/`dec` or `target`, `fov` (0.1), `scale` (6.15), `epoch` (2026.0),
+`catalogs` (`gaia,wise`), `max_sources` (150).
+
+Projects Gaia DR3 optical sources and AllWISE infrared sources onto the exact PNG pixel grid `(x, y)`
+of `/api/frames` (origin top-left):
+- `gaia`: includes `x`, `y`, `g_mag`, `bp_rp`, `pm_ra_masyr`, `pm_dec_masyr`, `total_pm_arcsec_yr`,
+  PNG proper-motion arrow vectors `dx_px_per_yr` and `dy_px_per_yr`, `parallax_mas`, `distance_pc`,
+  `distance_ly`, and `tangential_velocity_kms`.
+- `wise`: includes `x`, `y`, `w1_mag`..`w4_mag`, `w1_w2_color`, `w1_flux_mjy`..`w4_flux_mjy`,
+  `gaia_match`, and `gaia_source_id`.
+- `ir_only_candidates`: WISE sources with no Gaia DR3 optical counterpart within 3 arcsec (highlights
+  cold brown dwarfs like WISE 0855 and deeply embedded protostars).
+- `high_proper_motion`: Gaia stars with total proper motion >= 0.1 arcsec/yr.
+
 ## `GET /api/pixel_to_sky`: turn a click into coordinates
 
 `?ra=&dec=&fov=&scale=&x=&y=`, with the same `ra`, `dec`, `fov`, `scale` as the `/api/frames` call
