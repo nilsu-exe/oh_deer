@@ -68,7 +68,7 @@ def main():
     t0 = time.time()
     res = pipeline.build_frames(ra, dec, 0.15, DET, max_frames=30)
     print(f"    {res['counts']} in {time.time() - t0:.1f}s")
-    assert res["frames"], "No frames returned"
+    assert res.get("frames"), "No frames returned"
     print("OK - backend assumptions hold.")
 
 

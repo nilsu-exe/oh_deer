@@ -13,7 +13,8 @@ pip install -r requirements-dev.txt
 
 pytest -q                          # 1. offline tests, synthetic data, no network needed
 python scripts/smoke_test.py       # 2. DO THIS FIRST on a machine that can reach IRSA
-uvicorn app.main:app --reload      # 3. API on http://localhost:8000  (interactive docs: /docs)
+uvicorn app.main:app --reload      # 3. UI at http://localhost:8000, API docs at /docs
+# Or run without reload: python app/main.py
 python scripts/prefetch_targets.py # 4. before the demo: warm the cache for the 5 test targets
 ```
 
@@ -36,6 +37,7 @@ an IRSA cutout from the same exposure.
 | `app/pipeline.py` | `build_frames()` and `build_spectrum()`: ties the above together, binning, subtraction |
 | `app/targets.py`, `targets.json` | The 5 challenge targets, name resolution (SIMBAD), proper motion |
 | `app/main.py` | HTTP endpoints (see `API.md`) |
+| `frontend/index.html` | Lightweight live API viewer served at `/` |
 | `app/config.py` | Every tunable: pixel scale, parallelism, flag bits, TTLs |
 | `tests/` | Offline tests with synthetic rotated frames |
 
