@@ -40,7 +40,6 @@ def test_heartbeat_identifies_blocked_discovery_and_preserves_request_id(monkeyp
 
 @pytest.mark.parametrize("endpoint", ["frames", "spectrum"])
 def test_tap_proxy_failure_is_reported_as_upstream_502(monkeypatch, app_logs, endpoint):
-    from astroquery.ipac.irsa import Irsa
     from pyvo.dal.exceptions import DALServiceError
 
     monkeypatch.setattr(irsa_client.cache, "get_json", lambda *args, **kwargs: None)
@@ -48,7 +47,7 @@ def test_tap_proxy_failure_is_reported_as_upstream_502(monkeypatch, app_logs, en
     def failed_query(*args, **kwargs):
         raise DALServiceError("502 Server Error: Proxy Error for https://irsa.ipac.caltech.edu/TAP/sync")
 
-    monkeypatch.setattr(Irsa, "query_tap", failed_query)
+    monkeypatch.setattr(irsa_client.tap_metadata, "query_table", failed_query)
     response = TestClient(app).get(f"/api/{endpoint}", params={"ra": 1, "dec": 2})
     assert response.status_code == 502
     assert response.json()["request_id"] == response.headers["x-request-id"]

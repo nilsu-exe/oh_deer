@@ -4,7 +4,7 @@
     python scripts/smoke_test.py
 
 It checks, step by step, the assumptions the backend makes about IRSA:
-  1. the TAP query returns SPHEREx images for WISE 0855,
+  1. discovery returns SPHEREx images for WISE 0855 (local mirror or TAP),
   2. a cutout downloads and has the expected extensions,
   3. the WCS-WAVE lookup gives a sensible wavelength for the detector,
   4. an aperture cutout preserves the IRSA cutout's photometry,
@@ -27,10 +27,12 @@ EXPECTED_RANGE = {1: (0.75, 1.09), 2: (1.10, 1.62), 3: (1.63, 2.41),
 def main():
     t = targets.resolve("wise0855")
     ra, dec = t["ra"], t["dec"]
-    print(f"[1] TAP query at RA={ra:.5f} Dec={dec:.5f} detector {DET} (can take ~20 s)...")
+    print(f"[1] Discovery at RA={ra:.5f} Dec={dec:.5f} detector {DET}...")
     t0 = time.time()
     images = irsa_client.query_images(ra, dec, DET)
     print(f"    {len(images)} images in {time.time() - t0:.1f}s")
+    if getattr(images, "discovery", None):
+        print(f"    {images.discovery}")
     assert images, "No images found - check the query / IRSA availability"
     print(f"    first: {images[0]['base_url']}")
     print(f"    MJD range: {images[0]['mjd']:.2f} .. {images[-1]['mjd']:.2f}")

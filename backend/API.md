@@ -2,6 +2,10 @@
 
 Base URL `http://localhost:8000`. All endpoints are `GET`, JSON, CORS open. Interactive docs at `/docs`.
 Every endpoint that takes a position accepts **either** `ra` + `dec` (ICRS degrees) **or** `target` (name).
+Frame/spectrum responses include nullable `discovery` provenance. Local results
+report `{ "source": "local_mirror" | "mixed", "scope": "point" | "all_sky" | "mixed",
+"oldest_snapshot_utc": "...", "age_seconds": 123, "stale": false }`. A stale
+snapshot remains usable but excludes later ingests; refresh the mirror to update it.
 
 ## `GET /api/frames`: the flipbook
 
@@ -48,6 +52,9 @@ Frontend notes:
 
 Params: `ra`/`dec` or `target`, `aperture_px` (1.5), `size` (0.04 deg cutout per exposure),
 `max_frames` (600), `dets` (e.g. `1,2`). Uses all six detectors by default.
+Selected detectors must be 1-6. Only the selected detectors need mirrored coverage;
+omitting `dets` requires all six. `discovery.source=mixed` means selected detectors
+combine local snapshots and remote/cache results.
 
 ```json
 {
@@ -64,7 +71,8 @@ Params: `ra`/`dec` or `target`, `aperture_px` (1.5), `size` (0.04 deg cutout per
 Points are sorted by wavelength: plot `flux_jy` vs `wavelength_um` with `err_jy` error bars.
 First call for a position can take minutes (hundreds of cutouts); later calls are cached.
 Uncached aperture cutouts use partial reads from the public S3 mirror, skipping
-EPSF and ZODI data, with IRSA cutouts as a fallback. Discovery still uses IRSA TAP.
+EPSF and ZODI data, with IRSA cutouts as a fallback. Discovery prefers the local
+mirror, using IRSA TAP for missing coverage in the default `auto` mode.
 
 ## `GET /api/pixel_to_sky`: turn a click into coordinates
 
@@ -77,9 +85,12 @@ Use it to turn a click into a spectrum request.
 - `GET /api/targets`: the 5 challenge targets (for preset buttons).
 - `GET /api/resolve?name=...&epoch=`: name to coordinates (SIMBAD; proper motion applied for known targets).
 - `GET /api/health`.
+- `GET /api/discovery/status`: discovery mode, completed snapshot scopes/times/counts.
 
 Errors: `404` name not found, `422` bad or missing parameters, `502` IRSA TAP
 discovery failed (upstream unavailable or returned an invalid response).
+With `SPHEREX_DISCOVERY_MODE=local`, missing mirrored coverage returns `503` with
+an explanatory `detail` and `request_id`, without contacting TAP.
 
 The `X-Request-ID` response header matches the request ID in the backend logs.
 Discovery errors return `{ "detail": "IRSA image discovery failed...", "request_id": "..." }`.

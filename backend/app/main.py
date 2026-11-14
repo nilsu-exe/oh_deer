@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import config, diagnostics, irsa_client, pipeline, processing, targets
+from . import config, diagnostics, discovery_mirror, irsa_client, pipeline, processing, targets
 
 diagnostics.configure_logging()
 
@@ -23,6 +23,13 @@ async def discovery_error(request, exc):
     return JSONResponse(status_code=502, content={
         "detail": "IRSA image discovery failed. The upstream TAP service may be unavailable; try again shortly.",
         "request_id": diagnostics.request_id(),
+    })
+
+
+@app.exception_handler(irsa_client.MirrorUnavailable)
+async def mirror_unavailable(request, exc):
+    return JSONResponse(status_code=503, content={
+        "detail": str(exc), "request_id": diagnostics.request_id(),
     })
 
 
@@ -46,6 +53,11 @@ def _center(ra: Optional[float], dec: Optional[float], target: Optional[str],
 @app.get("/api/health")
 def health():
     return {"status": "ok", "cache_dir": str(config.CACHE_DIR)}
+
+
+@app.get("/api/discovery/status")
+def discovery_status():
+    return {"mode": config.DISCOVERY_MODE, **discovery_mirror.status()}
 
 
 @app.get("/api/targets")
@@ -106,6 +118,8 @@ def spectrum(
             det_list = [int(d) for d in dets.split(",")]
         except ValueError:
             raise HTTPException(status_code=422, detail="dets must be comma-separated integers")
+        if any(d not in range(1, 7) for d in det_list):
+            raise HTTPException(status_code=422, detail="dets must be detector numbers 1-6")
     result = pipeline.build_spectrum(ra, dec, size=size, aperture_px=aperture_px,
                                      max_frames=max_frames, dets=det_list)
     result["resolved"] = info

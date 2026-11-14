@@ -28,6 +28,9 @@ an IRSA cutout from the same exposure.
 | File | Job |
 |---|---|
 | `app/irsa_client.py` | TAP query for images covering a position, parallel cutout download, retries |
+| `app/discovery_mirror.py` | Local SQLite snapshots and spherical footprint index |
+| `app/tap_metadata.py` | Bounded TAP metadata exports, including overflow checks |
+| `scripts/sync_discovery.py` | Bootstrap, refresh, and inspect the discovery mirror |
 | `app/s3_cutouts.py` | S3 range reads for aperture spectra, skipping EPSF and ZODI data |
 | `app/processing.py` | Parse cutout, wavelength per pixel, flag masking, reprojection, PNG encoding, aperture photometry |
 | `app/pipeline.py` | `build_frames()` and `build_spectrum()`: ties the above together, binning, subtraction |
@@ -38,9 +41,64 @@ an IRSA cutout from the same exposure.
 
 ## How it updates with new data
 
-Nothing is hard-coded to a release. Each request queries IRSA's TAP tables live, so weekly
-ingests appear automatically. Image lists are cached for 6 h (`SPHEREX_TAP_TTL`, seconds);
-cutouts are cached forever (their URLs include the processing version).
+Nothing is hard-coded to a release. Discovery first checks the local SQLite mirror.
+An available snapshot is served immediately, including during an IRSA outage.
+Outside mirrored coverage, the default `auto` mode uses the six-hour TAP cache
+and then live TAP, saving successful queries into the mirror. Cutouts are cached
+forever (their URLs include the processing version).
+
+## Local discovery mirror
+
+The mirror stores only the image URLs, times, detectors, and footprints this app
+needs. It does not implement a general TAP/ADQL server or copy image data.
+Initialize it from saved discovery queries without contacting IRSA:
+
+```bash
+python scripts/sync_discovery.py --seed-cache --status
+```
+
+Saved point queries cover only their original coordinate key (rounded to four
+decimal places, matching the old cache) and detector selection. Their original
+timestamps are retained. They do not imply coverage of adjacent coordinates.
+Six detector snapshots are required for an all-detector spectrum.
+
+Build full-sky coverage when TAP is available:
+
+```bash
+python scripts/sync_discovery.py --sync --det 2 --timeout 300
+python scripts/sync_discovery.py --sync --timeout 600 --attempts 10
+```
+
+The second command exports each of the six detectors separately. Completed,
+recent detectors are skipped on rerun; `--force` refreshes them again. Each
+detector import commits atomically. HTTP failures, interrupted exports, invalid
+footprints, and TAP `QUERY_STATUS=ERROR` or `OVERFLOW` leave the previous snapshot
+intact. Exports are capped at one million rows and 512 MiB per detector; raise
+`--maxrec` / `--max-mb` if necessary. These limits fail explicitly rather than
+publishing truncated coverage. Temporary parsing/import memory can exceed the
+download size. Full-sky exports still depend on an operational upstream service.
+
+Full-sky queries use a SQLite 3-D R-tree followed by spherical polygon containment,
+including fields crossing RA=0 and the poles. An empty result is authoritative
+only within a completed snapshot. A partial set of detector exports never claims
+to cover all detectors.
+
+Settings, read at startup:
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `SPHEREX_DISCOVERY_MIRROR` | `<cache_dir>/discovery.sqlite3` | Persistent mirror database |
+| `SPHEREX_DISCOVERY_MODE` | `auto` | Prefer local snapshots, use TAP for missing coverage |
+| `SPHEREX_TAP_TIMEOUT` | `30` seconds | Live TAP HTTP timeout and export time budget |
+
+Set `SPHEREX_DISCOVERY_MODE=local` to prohibit remote discovery entirely; missing
+coverage returns HTTP 503. Set it to `tap` to bypass the mirror and use the
+original six-hour cache/live discovery path. Existing snapshots are not refreshed
+implicitly: rerun `--sync` to incorporate new ingests or reprocessing. Responses
+from the mirror include `discovery.source`, `scope`, `oldest_snapshot_utc`,
+`age_seconds`, and `stale` (older than `SPHEREX_TAP_TTL`). Stale snapshots remain
+usable during outages, but do not include data ingested after their snapshot.
+`GET /api/discovery/status` reports the currently completed snapshots and counts.
 
 Spectrum downloads first reuse cached cutouts, then read small regions directly
 from the public SPHEREx S3 mirror over HTTPS. Only IMAGE, FLAGS, VARIANCE, and
@@ -90,12 +148,14 @@ A TAP `502 Proxy Error` occurs before cutouts or image processing begin. It is
 an upstream discovery failure. Cutout requests retain their 120-second timeout
 and three attempts, so a failing cold request can take minutes, with additional
 time waiting for the shared download slots. Heartbeats expose those waits; they
-do not interrupt or retry TAP discovery.
+do not retry live TAP discovery. Live TAP calls now have a 30-second timeout
+(`SPHEREX_TAP_TIMEOUT`); mirrored requests make no TAP call.
 
 An aperture batch logs `source=S3 aperture ranges (IRSA fallback)`. Individual
 range-cutout timings, output sizes, and cache hits are available at DEBUG; S3
 failures, retries, and fallbacks are logged at INFO/WARNING. S3 changes the
-download stage only: it cannot resolve a TAP `502` or a wait in `stage=discovery`.
+download stage only. The local discovery mirror is what avoids TAP calls during
+an outage for already mirrored coordinates/detectors.
 
 ## Design decisions worth knowing
 

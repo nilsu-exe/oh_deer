@@ -72,6 +72,7 @@ def build_frames(ra: float, dec: float, fov: float, det: int, *,
     """
     with diagnostics.stage(log, "discovery", f"ra={ra:.6f} dec={dec:.6f} detector={det}"):
         images = irsa_client.query_images(ra, dec, det)
+    discovery = getattr(images, "discovery", None)
     n_found = len(images)
     images = _subsample(images, max_frames)
     log.info("frames selected found=%d requested=%d max_frames=%d", n_found, len(images), max_frames)
@@ -154,6 +155,7 @@ def build_frames(ra: float, dec: float, fov: float, det: int, *,
         "counts": {"images_found": n_found, "requested": len(images),
                    "failed": failed, "frames_returned": len(out_frames)},
         "frames": out_frames,
+        "discovery": discovery,
     }
 
 
@@ -166,7 +168,8 @@ def build_spectrum(ra: float, dec: float, *, size: float = 0.04, aperture_px: fl
     traces out the 0.75-5 micron spectrum.
     """
     with diagnostics.stage(log, "discovery", f"ra={ra:.6f} dec={dec:.6f} detectors=all"):
-        images = irsa_client.query_images(ra, dec, None)
+        images = irsa_client.query_selected_images(ra, dec, dets)
+    discovery = getattr(images, "discovery", None)
     if dets:
         images = [m for m in images if m.get("det") in dets]
     n_found = len(images)
@@ -203,6 +206,7 @@ def build_spectrum(ra: float, dec: float, *, size: float = 0.04, aperture_px: fl
         "counts": {"images_found": n_found, "requested": len(images),
                    "failed": failed, "points": len(points)},
         "points": points,
+        "discovery": discovery,
         "notes": ("flux_jy = aperture sum minus local median background; no aperture correction. "
                   "Quick-look only, not calibrated point-source photometry."),
     }

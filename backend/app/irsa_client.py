@@ -1,8 +1,8 @@
 """Talking to IRSA: find SPHEREx spectral images and download cutouts.
 
-Discovery uses the TAP tables ``spherex.artifact`` + ``spherex.plane`` (the same
-query as the IRSA cutouts tutorial). TAP sees new weekly ingests immediately,
-whereas SIA lags about a day -- so new data releases need no code changes.
+Discovery prefers local snapshots of ``spherex.artifact`` + ``spherex.plane``.
+Missing coverage falls back to a bounded TAP query in auto mode. Full-sky mirror
+refreshes are explicit, so snapshot provenance must accompany local results.
 
 Frame cutouts use IRSA's URL service: append ``?center=<ra>,<dec>d&size=<deg>``
 to an image URL. Aperture spectra use partial reads from the public S3 mirror,
@@ -11,15 +11,17 @@ with IRSA cutouts as a fallback.
 from __future__ import annotations
 
 import logging
+import sqlite3
 import threading
 import time
 from concurrent.futures import as_completed, ThreadPoolExecutor
 from contextvars import copy_context
+from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
 import requests
 
-from . import cache, config, diagnostics, s3_cutouts
+from . import cache, config, diagnostics, discovery_mirror, s3_cutouts, tap_metadata
 
 log = logging.getLogger(__name__)
 
@@ -28,6 +30,10 @@ _download_slots = threading.BoundedSemaphore(config.MAX_PARALLEL_DOWNLOADS)
 
 class DiscoveryError(RuntimeError):
     """The upstream TAP service could not return a usable image list."""
+
+
+class MirrorUnavailable(DiscoveryError):
+    """Local-only discovery was requested without a complete matching snapshot."""
 
 
 def _det_from_bandpass(name: str) -> Optional[int]:
@@ -44,6 +50,20 @@ def query_images(ra: float, dec: float, det: Optional[int] = None) -> List[Dict[
     ``det`` is the detector number 1-6 (``None`` = all six).
     Returns dicts: ``{"base_url", "mjd", "det", "bandpass"}``.
     """
+    if config.DISCOVERY_MODE != "tap":
+        try:
+            local = discovery_mirror.query_images(ra, dec, det)
+        except (sqlite3.Error, OSError, ValueError) as exc:
+            log.warning("local discovery mirror unavailable error=%s: %s", type(exc).__name__, exc)
+            local = None
+        if local is not None:
+            log.info("local discovery hit images=%d detector=%s scope=%s snapshot=%s stale=%s elapsed_network=0",
+                     len(local), det or "all", local.discovery["scope"],
+                     local.discovery["oldest_snapshot_utc"], local.discovery["stale"])
+            return local
+        if config.DISCOVERY_MODE == "local":
+            raise MirrorUnavailable("No complete local discovery snapshot covers this position and detector selection.")
+
     key = f"tap_{round(ra, 4)}_{round(dec, 4)}_{det or 'all'}"
     cached = cache.get_json(key, ttl=config.TAP_TTL_SECONDS)
     if cached is not None:
@@ -52,8 +72,6 @@ def query_images(ra: float, dec: float, det: Optional[int] = None) -> List[Dict[
 
     log.info("TAP cache miss key=%s ra=%.6f dec=%.6f detector=%s",
              key, ra, dec, det or "all")
-
-    from astroquery.ipac.irsa import Irsa  # imported lazily: slow import
 
     band_clause = f"AND p.energy_bandpassname = 'SPHEREx-D{int(det)}'" if det else ""
     adql = f"""
@@ -69,7 +87,9 @@ def query_images(ra: float, dec: float, det: Optional[int] = None) -> List[Dict[
     t0 = time.perf_counter()
     log.info("TAP HTTP query started endpoint=https://irsa.ipac.caltech.edu/TAP/sync")
     try:
-        table = Irsa.query_tap(adql).to_table()
+        table = tap_metadata.query_table(adql)
+        if not {"uri", "mjd", "bandpass"}.issubset(table.colnames):
+            raise ValueError("TAP response is missing required discovery columns")
     except Exception as exc:
         log.error("TAP HTTP query failed elapsed=%.2fs error=%s: %s",
                   time.perf_counter() - t0, type(exc).__name__, exc)
@@ -92,8 +112,32 @@ def query_images(ra: float, dec: float, det: Optional[int] = None) -> List[Dict[
         })
     out.sort(key=lambda r: r["mjd"])
     cache.set_json(key, out)
+    if config.DISCOVERY_MODE != "tap":
+        try:
+            discovery_mirror.replace_snapshot(out, ra=ra, dec=dec, det=det)
+        except (sqlite3.Error, OSError, ValueError) as exc:
+            log.warning("could not save discovery snapshot: %s", exc)
     log.info("TAP discovery cached key=%s images=%d", key, len(out))
     return out
+
+
+def query_selected_images(ra: float, dec: float, dets: Optional[List[int]] = None):
+    """Require coverage only for requested detectors, including local-only spectra."""
+    if not dets:
+        return query_images(ra, dec)
+    detectors = sorted(set(dets))
+    groups = [query_images(ra, dec, det) for det in detectors]
+    images = {m["base_url"]: m for det, group in zip(detectors, groups)
+              for m in group if m.get("det") == det}
+    images = sorted(images.values(), key=lambda m: (m["mjd"], m["base_url"]))
+    infos = [g.discovery for g in groups if getattr(g, "discovery", None)]
+    if infos:
+        images = discovery_mirror.MirrorImages(images, [
+            {"updated": datetime.fromisoformat(info["oldest_snapshot_utc"]).timestamp(),
+             "scope": info["scope"]} for info in infos])
+        if len(infos) != len(groups):
+            images.discovery.update(source="mixed", scope="mixed")
+    return images
 
 
 def cutout_url(base_url: str, ra: float, dec: float, size_deg: float) -> str:

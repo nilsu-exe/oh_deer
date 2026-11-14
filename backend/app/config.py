@@ -20,6 +20,11 @@ LOG_HEARTBEAT_SECONDS = float(os.environ.get("SPHEREX_LOG_HEARTBEAT", "10"))
 
 # TAP results are cached only this long so newly ingested weekly data shows up.
 TAP_TTL_SECONDS = int(os.environ.get("SPHEREX_TAP_TTL", str(6 * 3600)))
+TAP_HTTP_TIMEOUT = float(os.environ.get("SPHEREX_TAP_TIMEOUT", "30"))
+DISCOVERY_MIRROR_PATH = Path(os.environ.get("SPHEREX_DISCOVERY_MIRROR", CACHE_DIR / "discovery.sqlite3"))
+DISCOVERY_MODE = os.environ.get("SPHEREX_DISCOVERY_MODE", "auto").lower()
+if DISCOVERY_MODE not in ("auto", "local", "tap"):
+    raise ValueError("SPHEREX_DISCOVERY_MODE must be auto, local, or tap")
 
 # --- Imaging ----------------------------------------------------------------
 # SPHEREx pixels are ~6.15 arcsec (derived from the IMAGE header PC matrix).
