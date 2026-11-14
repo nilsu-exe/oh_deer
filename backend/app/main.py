@@ -1,20 +1,29 @@
 """FastAPI app. Run with:  uvicorn app.main:app --reload   (from the backend/ folder)"""
 from __future__ import annotations
 
-import logging
 from pathlib import Path
 from typing import Literal, Optional
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import config, pipeline, processing, targets
+from . import config, diagnostics, irsa_client, pipeline, processing, targets
 
-logging.basicConfig(level=logging.INFO)
+diagnostics.configure_logging()
 
 app = FastAPI(title="SPHEREx sky flipbook API", version="0.1.0")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+app.add_middleware(diagnostics.RequestLoggingMiddleware)
+
+
+@app.exception_handler(irsa_client.DiscoveryError)
+async def discovery_error(request, exc):
+    return JSONResponse(status_code=502, content={
+        "detail": "IRSA image discovery failed. The upstream TAP service may be unavailable; try again shortly.",
+        "request_id": diagnostics.request_id(),
+    })
 
 
 def _center(ra: Optional[float], dec: Optional[float], target: Optional[str],
@@ -22,7 +31,8 @@ def _center(ra: Optional[float], dec: Optional[float], target: Optional[str],
     """Accept either ra+dec (degrees) or a target name. Returns (ra, dec, info)."""
     if target:
         try:
-            info = targets.resolve(target, epoch)
+            with diagnostics.stage(targets.log, "resolution", f"target={target} epoch={epoch}"):
+                info = targets.resolve(target, epoch)
         except LookupError as exc:
             raise HTTPException(status_code=404, detail=str(exc))
         return info["ra"], info["dec"], info
@@ -47,7 +57,8 @@ def list_targets():
 @app.get("/api/resolve")
 def resolve(name: str, epoch: Optional[float] = None):
     try:
-        return targets.resolve(name, epoch)
+        with diagnostics.stage(targets.log, "resolution", f"name={name} epoch={epoch}"):
+            return targets.resolve(name, epoch)
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
 
@@ -73,6 +84,7 @@ def frames(
                                    subtract=subtract, mask=mask, scale=scale,
                                    max_frames=max_frames, stretch=stretch)
     result["resolved"] = info
+    diagnostics.set_phase("response serialization")
     return result
 
 
@@ -97,6 +109,7 @@ def spectrum(
     result = pipeline.build_spectrum(ra, dec, size=size, aperture_px=aperture_px,
                                      max_frames=max_frames, dets=det_list)
     result["resolved"] = info
+    diagnostics.set_phase("response serialization")
     return result
 
 

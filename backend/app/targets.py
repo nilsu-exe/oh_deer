@@ -2,11 +2,14 @@
 from __future__ import annotations
 
 import json
+import logging
 import math
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from . import cache, config
+
+log = logging.getLogger(__name__)
 
 _TARGETS_FILE = Path(__file__).with_name("targets.json")
 

@@ -12,16 +12,21 @@ from __future__ import annotations
 import logging
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import as_completed, ThreadPoolExecutor
+from contextvars import copy_context
 from typing import Any, Dict, List, Optional, Tuple
 
 import requests
 
-from . import cache, config
+from . import cache, config, diagnostics
 
 log = logging.getLogger(__name__)
 
 _download_slots = threading.BoundedSemaphore(config.MAX_PARALLEL_DOWNLOADS)
+
+
+class DiscoveryError(RuntimeError):
+    """The upstream TAP service could not return a usable image list."""
 
 
 def _det_from_bandpass(name: str) -> Optional[int]:
@@ -41,7 +46,11 @@ def query_images(ra: float, dec: float, det: Optional[int] = None) -> List[Dict[
     key = f"tap_{round(ra, 4)}_{round(dec, 4)}_{det or 'all'}"
     cached = cache.get_json(key, ttl=config.TAP_TTL_SECONDS)
     if cached is not None:
+        log.info("TAP cache hit key=%s images=%d", key, len(cached))
         return cached
+
+    log.info("TAP cache miss key=%s ra=%.6f dec=%.6f detector=%s",
+             key, ra, dec, det or "all")
 
     from astroquery.ipac.irsa import Irsa  # imported lazily: slow import
 
@@ -56,9 +65,15 @@ def query_images(ra: float, dec: float, det: Optional[int] = None) -> List[Dict[
           {band_clause}
         ORDER BY p.time_bounds_lower
     """
-    t0 = time.time()
-    table = Irsa.query_tap(adql).to_table()
-    log.info("TAP query returned %d rows in %.1fs", len(table), time.time() - t0)
+    t0 = time.perf_counter()
+    log.info("TAP HTTP query started endpoint=https://irsa.ipac.caltech.edu/TAP/sync")
+    try:
+        table = Irsa.query_tap(adql).to_table()
+    except Exception as exc:
+        log.error("TAP HTTP query failed elapsed=%.2fs error=%s: %s",
+                  time.perf_counter() - t0, type(exc).__name__, exc)
+        raise DiscoveryError(str(exc)) from exc
+    log.info("TAP HTTP query finished rows=%d elapsed=%.2fs", len(table), time.perf_counter() - t0)
 
     out: List[Dict[str, Any]] = []
     for row in table:
@@ -76,6 +91,7 @@ def query_images(ra: float, dec: float, det: Optional[int] = None) -> List[Dict[
         })
     out.sort(key=lambda r: r["mjd"])
     cache.set_json(key, out)
+    log.info("TAP discovery cached key=%s images=%d", key, len(out))
     return out
 
 
@@ -84,16 +100,37 @@ def cutout_url(base_url: str, ra: float, dec: float, size_deg: float) -> str:
 
 
 def _download(url: str) -> Optional[bytes]:
+    total_started = time.perf_counter()
     for attempt in range(config.RETRIES):
+        attempt_started = time.perf_counter()
         try:
+            log.debug("cutout waiting for slot attempt=%d/%d url=%s", attempt + 1, config.RETRIES, url)
             with _download_slots:
+                waited = time.perf_counter() - attempt_started
+                if waited >= config.LOG_HEARTBEAT_SECONDS > 0:
+                    log.warning("cutout slot acquired after %.2fs waiting url=%s", waited, url)
+                log.debug("cutout HTTP started attempt=%d/%d timeout=%ss slot_wait=%.2fs url=%s",
+                          attempt + 1, config.RETRIES, config.HTTP_TIMEOUT, waited, url)
+                http_started = time.perf_counter()
                 r = requests.get(url, timeout=config.HTTP_TIMEOUT)
             if r.status_code == 200 and r.content:
+                log.debug("cutout HTTP finished bytes=%d http_elapsed=%.2fs total_elapsed=%.2fs url=%s",
+                          len(r.content), time.perf_counter() - http_started,
+                          time.perf_counter() - total_started, url)
                 return r.content
-            log.warning("HTTP %s for %s (attempt %d)", r.status_code, url, attempt + 1)
+            log.warning("cutout HTTP failed status=%s attempt=%d/%d elapsed=%.2fs url=%s",
+                        r.status_code, attempt + 1, config.RETRIES,
+                        time.perf_counter() - attempt_started, url)
         except requests.RequestException as exc:
-            log.warning("download error %s for %s (attempt %d)", exc, url, attempt + 1)
-        time.sleep(config.RETRY_BACKOFF * (attempt + 1))
+            log.warning("cutout HTTP failed attempt=%d/%d elapsed=%.2fs error=%s: %s url=%s",
+                        attempt + 1, config.RETRIES, time.perf_counter() - attempt_started,
+                        type(exc).__name__, exc, url)
+        if attempt + 1 < config.RETRIES:
+            delay = config.RETRY_BACKOFF * (attempt + 1)
+            log.info("cutout retry in %.1fs url=%s", delay, url)
+            time.sleep(delay)
+    log.error("cutout abandoned attempts=%d elapsed=%.2fs url=%s", config.RETRIES,
+              time.perf_counter() - total_started, url)
     return None
 
 
@@ -103,7 +140,9 @@ def fetch_cutout(base_url: str, ra: float, dec: float, size_deg: float) -> Optio
     key = "cut_" + cache.key_hash(url)
     data = cache.get_bytes(key)
     if data is not None:
+        log.debug("cutout cache hit bytes=%d url=%s", len(data), url)
         return data
+    log.debug("cutout cache miss url=%s", url)
     data = _download(url)
     if data is not None:
         cache.set_bytes(key, data)
@@ -120,5 +159,26 @@ def fetch_all(images: List[Dict[str, Any]], ra: float, dec: float,
     def one(meta: Dict[str, Any]):
         return meta, fetch_cutout(meta["base_url"], ra, dec, size_deg)
 
+    total = len(images)
+    started = time.perf_counter()
+    log.info("cutout batch started requested=%d workers=%d timeout=%ss attempts=%d size=%.5fdeg",
+             total, config.MAX_PARALLEL_DOWNLOADS, config.HTTP_TIMEOUT, config.RETRIES, size_deg)
+    diagnostics.set_progress(f"completed=0/{total} pending={total}")
+    results = [None] * total
+    failed = 0
     with ThreadPoolExecutor(max_workers=config.MAX_PARALLEL_DOWNLOADS) as pool:
-        return list(pool.map(one, images))
+        # Report whichever download finishes first, while keeping chronological
+        # return order. Propagate the request ID into every pool worker.
+        futures = {pool.submit(copy_context().run, one, meta): index
+                   for index, meta in enumerate(images)}
+        for completed, future in enumerate(as_completed(futures), 1):
+            result = future.result()
+            results[futures[future]] = result
+            failed += result[1] is None
+            diagnostics.set_progress(f"completed={completed}/{total} failed={failed} pending={total - completed}")
+            if completed == 1 or completed % 10 == 0 or completed == total:
+                log.info("cutout progress completed=%d/%d failed=%d pending=%d elapsed=%.2fs",
+                         completed, total, failed, total - completed, time.perf_counter() - started)
+    log.info("cutout batch finished loaded=%d failed=%d elapsed=%.2fs",
+             total - failed, failed, time.perf_counter() - started)
+    return results

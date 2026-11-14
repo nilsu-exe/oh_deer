@@ -14,6 +14,8 @@ MAX_PARALLEL_DOWNLOADS = int(os.environ.get("SPHEREX_MAX_PARALLEL", "10"))
 HTTP_TIMEOUT = 120          # seconds; SPHEREx reads can be slow
 RETRIES = 3
 RETRY_BACKOFF = 2.0         # seconds * attempt number
+LOG_LEVEL = os.environ.get("SPHEREX_LOG_LEVEL", "INFO").upper()
+LOG_HEARTBEAT_SECONDS = float(os.environ.get("SPHEREX_LOG_HEARTBEAT", "10"))
 
 # TAP results are cached only this long so newly ingested weekly data shows up.
 TAP_TTL_SECONDS = int(os.environ.get("SPHEREX_TAP_TTL", str(6 * 3600)))

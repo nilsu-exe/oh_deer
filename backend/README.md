@@ -39,6 +39,42 @@ Nothing is hard-coded to a release. Each request queries IRSA's TAP tables live,
 ingests appear automatically. Image lists are cached for 6 h (`SPHEREX_TAP_TTL`, seconds);
 cutouts are cached forever (their URLs include the processing version).
 
+## Request diagnostics
+
+The backend logs each API request immediately, with a short request ID and total
+elapsed time on completion. The same ID appears in the response's `X-Request-ID`
+header. Discovery failures return HTTP 502 with that ID in the JSON body.
+
+Stage start/finish logs cover name resolution, TAP discovery, cutout downloads,
+FITS processing/reprojection or photometry, and stacking/PNG encoding. Every
+10 seconds, an unfinished request logs its current stage, stage duration, and
+progress. A request waiting for a free API worker is identified separately.
+Download progress reports completed/failed/pending counts as files finish,
+while the returned frames keep their chronological order. TAP cache hits and
+misses are logged at INFO. Cutout cache hits and individual HTTP starts/successes
+are available at DEBUG. Failed HTTP attempts include their duration, URL, attempt
+number, and next retry delay.
+
+```text
+18:40:00 INFO [a12b34cd] app.pipeline: discovery started ra=133.795130 dec=-7.245147 detector=2
+18:40:10 INFO [a12b34cd] app.diagnostics: request running elapsed=10.0s stage=discovery stage_elapsed=10.0s
+18:40:20 ERROR [a12b34cd] app.irsa_client: TAP HTTP query failed elapsed=20.1s error=DALServiceError: 502 Server Error: Proxy Error ...
+18:40:20 INFO [a12b34cd] app.diagnostics: request finished status=502 elapsed=20.10s
+```
+
+These settings are read at startup:
+
+- `SPHEREX_LOG_LEVEL=INFO` (default), or `DEBUG` for per-file details.
+- `SPHEREX_LOG_HEARTBEAT=10` (seconds); set `0` to disable periodic messages.
+
+For example: `SPHEREX_LOG_LEVEL=DEBUG uvicorn app.main:app --reload`.
+
+A TAP `502 Proxy Error` occurs before cutouts or image processing begin. It is
+an upstream discovery failure. Cutout requests retain their 120-second timeout
+and three attempts, so a failing cold request can take minutes, with additional
+time waiting for the shared download slots. Heartbeats expose those waits; they
+do not interrupt or retry TAP discovery.
+
 ## Design decisions worth knowing
 
 - **One detector per flipbook.** Each of the six arrays covers a different wavelength range;

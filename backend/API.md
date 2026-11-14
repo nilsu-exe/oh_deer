@@ -76,4 +76,9 @@ Use it to turn a click into a spectrum request.
 - `GET /api/resolve?name=...&epoch=`: name to coordinates (SIMBAD; proper motion applied for known targets).
 - `GET /api/health`.
 
-Errors: `404` name not found, `422` bad or missing parameters.
+Errors: `404` name not found, `422` bad or missing parameters, `502` IRSA TAP
+discovery failed (upstream unavailable or returned an invalid response).
+
+The `X-Request-ID` response header matches the request ID in the backend logs.
+Discovery errors return `{ "detail": "IRSA image discovery failed...", "request_id": "..." }`.
+Individual cutout failures still return a partial flipbook with `counts.failed`.
