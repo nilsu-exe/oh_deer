@@ -1,0 +1,37 @@
+[
+  {
+    "id": "wise0855",
+    "name": "WISE 0855-0714",
+    "ra": 133.79513,
+    "dec": -7.245147,
+    "note": "Coordinates from the challenge text (08h55m10.831s, -07d14m42.53s). Fast mover (~8 arcsec/yr): use a larger FOV, and expect a few pixels of motion across the survey."
+  },
+  {
+    "id": "barnards-star",
+    "name": "Barnard's Star",
+    "resolve": "Barnard's star",
+    "pm_ra_masyr": -798.6,
+    "pm_dec_masyr": 10328.1,
+    "note": "Moves ~10.3 arcsec/yr. SIMBAD gives the J2000 position, which is ~4.5 arcmin away by 2026, so proper motion is applied to the epoch."
+  },
+  {
+    "id": "eps-indi-b",
+    "name": "Epsilon Indi B (Ba/Bb)",
+    "resolve": "eps Ind Ba",
+    "pm_ra_masyr": 3966.0,
+    "pm_dec_masyr": -2536.0,
+    "note": "Brown dwarf pair, shares the high proper motion of Epsilon Indi A. Verify the resolved position against SIMBAD."
+  },
+  {
+    "id": "rw-aur",
+    "name": "RW Aurigae",
+    "resolve": "RW Aur",
+    "note": "Variable star; small proper motion."
+  },
+  {
+    "id": "r-dra",
+    "name": "R Draconis",
+    "resolve": "R Dra",
+    "note": "Variable star; small proper motion."
+  }
+]

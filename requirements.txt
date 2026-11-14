@@ -1,0 +1,8 @@
+fastapi>=0.110
+uvicorn[standard]>=0.29
+astropy
+astroquery>=0.4.7
+reproject>=0.13
+numpy
+pillow
+requests
