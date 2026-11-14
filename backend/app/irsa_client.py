@@ -4,8 +4,9 @@ Discovery uses the TAP tables ``spherex.artifact`` + ``spherex.plane`` (the same
 query as the IRSA cutouts tutorial). TAP sees new weekly ingests immediately,
 whereas SIA lags about a day -- so new data releases need no code changes.
 
-Cutouts use IRSA's URL service: append ``?center=<ra>,<dec>d&size=<deg>`` to
-an image URL and you get a small multi-extension FITS file back.
+Frame cutouts use IRSA's URL service: append ``?center=<ra>,<dec>d&size=<deg>``
+to an image URL. Aperture spectra use partial reads from the public S3 mirror,
+with IRSA cutouts as a fallback.
 """
 from __future__ import annotations
 
@@ -18,7 +19,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import requests
 
-from . import cache, config, diagnostics
+from . import cache, config, diagnostics, s3_cutouts
 
 log = logging.getLogger(__name__)
 
@@ -149,20 +150,66 @@ def fetch_cutout(base_url: str, ra: float, dec: float, size_deg: float) -> Optio
     return data
 
 
+def fetch_aperture_cutout(base_url: str, ra: float, dec: float,
+                          size_deg: float) -> Optional[bytes]:
+    """Prefer cached data, then S3 partial reads; fall back to the IRSA service."""
+    url = cutout_url(base_url, ra, dec, size_deg)
+    key = "aperture_s3_v1_" + cache.key_hash(url)
+    for cached_key in (key, "cut_" + cache.key_hash(url)):
+        data = cache.get_bytes(cached_key)
+        if data is not None:
+            log.debug("aperture cache hit bytes=%d key=%s", len(data), cached_key)
+            return data
+
+    s3_url = s3_cutouts.mirror_url(base_url)
+    if s3_url is not None:
+        started = time.perf_counter()
+        for attempt in range(config.RETRIES):
+            attempt_started = time.perf_counter()
+            try:
+                with _download_slots:
+                    waited = time.perf_counter() - attempt_started
+                    log.debug("S3 aperture started attempt=%d/%d slot_wait=%.2fs url=%s",
+                              attempt + 1, config.RETRIES, waited, s3_url)
+                    data = s3_cutouts.read_cutout(s3_url, ra, dec, size_deg)
+                cache.set_bytes(key, data)
+                log.debug("S3 aperture finished cutout_bytes=%d elapsed=%.2fs url=%s",
+                          len(data), time.perf_counter() - started, s3_url)
+                return data
+            except Exception as exc:
+                log.warning("S3 aperture failed attempt=%d/%d elapsed=%.2fs error=%s: %s url=%s",
+                            attempt + 1, config.RETRIES, time.perf_counter() - attempt_started,
+                            type(exc).__name__, exc, s3_url)
+                if (isinstance(exc, (ImportError, KeyError, ValueError, FileNotFoundError, PermissionError))
+                        or getattr(exc, "status", None) in (400, 403, 404, 416)):
+                    break  # Missing dependencies/HDUs or incompatible FITS, not a transient error.
+            if attempt + 1 < config.RETRIES:
+                delay = config.RETRY_BACKOFF * (attempt + 1)
+                log.info("S3 aperture retry in %.1fs url=%s", delay, s3_url)
+                time.sleep(delay)
+        log.warning("S3 aperture falling back to IRSA cutout elapsed=%.2fs url=%s",
+                    time.perf_counter() - started, url)
+    return fetch_cutout(base_url, ra, dec, size_deg)
+
+
 def fetch_all(images: List[Dict[str, Any]], ra: float, dec: float,
-              size_deg: float) -> List[Tuple[Dict[str, Any], Optional[bytes]]]:
+              size_deg: float, *, aperture_only: bool = False
+              ) -> List[Tuple[Dict[str, Any], Optional[bytes]]]:
     """Fetch cutouts for every image in parallel. Order is preserved.
 
+    ``aperture_only`` uses S3 range reads that omit EPSF/ZODI, with IRSA fallback.
     Failed downloads come back as ``(meta, None)`` so the caller can report
     "N of M frames loaded" instead of failing the whole request.
     """
     def one(meta: Dict[str, Any]):
-        return meta, fetch_cutout(meta["base_url"], ra, dec, size_deg)
+        fetch = fetch_aperture_cutout if aperture_only else fetch_cutout
+        return meta, fetch(meta["base_url"], ra, dec, size_deg)
 
     total = len(images)
     started = time.perf_counter()
-    log.info("cutout batch started requested=%d workers=%d timeout=%ss attempts=%d size=%.5fdeg",
-             total, config.MAX_PARALLEL_DOWNLOADS, config.HTTP_TIMEOUT, config.RETRIES, size_deg)
+    log.info("cutout batch started requested=%d workers=%d timeout=%ss attempts=%d size=%.5fdeg source=%s",
+             total, config.MAX_PARALLEL_DOWNLOADS, config.HTTP_TIMEOUT, config.RETRIES, size_deg,
+             "S3 aperture ranges (IRSA fallback)" if aperture_only else "IRSA cutouts")
     diagnostics.set_progress(f"completed=0/{total} pending={total}")
     results = [None] * total
     failed = 0

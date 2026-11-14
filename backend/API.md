@@ -63,6 +63,8 @@ Params: `ra`/`dec` or `target`, `aperture_px` (1.5), `size` (0.04 deg cutout per
 
 Points are sorted by wavelength: plot `flux_jy` vs `wavelength_um` with `err_jy` error bars.
 First call for a position can take minutes (hundreds of cutouts); later calls are cached.
+Uncached aperture cutouts use partial reads from the public S3 mirror, skipping
+EPSF and ZODI data, with IRSA cutouts as a fallback. Discovery still uses IRSA TAP.
 
 ## `GET /api/pixel_to_sky`: turn a click into coordinates
 

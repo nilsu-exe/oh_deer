@@ -173,7 +173,7 @@ def build_spectrum(ra: float, dec: float, *, size: float = 0.04, aperture_px: fl
     images = _subsample(images, max_frames)
     log.info("spectrum selected found=%d requested=%d max_frames=%d", n_found, len(images), max_frames)
     with diagnostics.stage(log, "downloads", f"requested={len(images)}"):
-        fetched = irsa_client.fetch_all(images, ra, dec, size)
+        fetched = irsa_client.fetch_all(images, ra, dec, size, aperture_only=True)
 
     points, failed = [], 0
     with diagnostics.stage(log, "spectrum processing", f"cutouts={len(fetched)} aperture={aperture_px}"):

@@ -6,6 +6,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 CACHE_DIR = Path(os.environ.get("SPHEREX_CACHE_DIR", BASE_DIR / ".cache"))
 
 IRSA_BASE = "https://irsa.ipac.caltech.edu"
+SPHEREX_S3_BASE = "https://nasa-irsa-spherex.s3.us-east-1.amazonaws.com"
 
 # --- Network behaviour -------------------------------------------------------
 # IRSA's server digests a limited number of parallel calls; 10 worked well in

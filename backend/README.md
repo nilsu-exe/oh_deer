@@ -20,12 +20,15 @@ python scripts/prefetch_targets.py # 4. before the demo: warm the cache for the 
 **Step 2 matters most.** The IRSA parts (TAP query, cutout URLs, WCS-WAVE wavelength lookup)
 are copied from the IRSA tutorials but were *not* run against IRSA when this was written.
 `smoke_test.py` checks each assumption and tells you which one is wrong, if any.
+It also compares the aperture download's wavelength, flux, and uncertainty with
+an IRSA cutout from the same exposure.
 
 ## Layout
 
 | File | Job |
 |---|---|
 | `app/irsa_client.py` | TAP query for images covering a position, parallel cutout download, retries |
+| `app/s3_cutouts.py` | S3 range reads for aperture spectra, skipping EPSF and ZODI data |
 | `app/processing.py` | Parse cutout, wavelength per pixel, flag masking, reprojection, PNG encoding, aperture photometry |
 | `app/pipeline.py` | `build_frames()` and `build_spectrum()`: ties the above together, binning, subtraction |
 | `app/targets.py`, `targets.json` | The 5 challenge targets, name resolution (SIMBAD), proper motion |
@@ -38,6 +41,20 @@ are copied from the IRSA tutorials but were *not* run against IRSA when this was
 Nothing is hard-coded to a release. Each request queries IRSA's TAP tables live, so weekly
 ingests appear automatically. Image lists are cached for 6 h (`SPHEREX_TAP_TTL`, seconds);
 cutouts are cached forever (their URLs include the processing version).
+
+Spectrum downloads first reuse cached cutouts, then read small regions directly
+from the public SPHEREx S3 mirror over HTTPS. Only IMAGE, FLAGS, VARIANCE, and
+the WCS-WAVE lookup table are retained; aperture photometry needs neither EPSF
+nor ZODI. Astropy uses lazy HDUs and range reads with read-ahead disabled to
+avoid transferring unused extensions. Whole image row strips reduce request
+count; compressed FLAGS may still require multiple tile reads. Celestial/SIP
+and alternate wavelength WCS reference pixels are shifted to the cropped origin.
+Compact aperture cutouts have a separate, versioned cache key so they cannot be
+used accidentally for frame rendering with zodiacal subtraction. Missing mirror
+objects and failed partial reads fall back to the existing IRSA cutout service,
+with bounded parallelism, timeouts, retries, and partial-failure reporting.
+See [IRSA's cloud layout](https://irsa.ipac.caltech.edu/cloud_access/) and
+[Astropy's remote FITS guidance](https://docs.astropy.org/en/stable/io/fits/usage/cloud.html).
 
 ## Request diagnostics
 
@@ -74,6 +91,11 @@ an upstream discovery failure. Cutout requests retain their 120-second timeout
 and three attempts, so a failing cold request can take minutes, with additional
 time waiting for the shared download slots. Heartbeats expose those waits; they
 do not interrupt or retry TAP discovery.
+
+An aperture batch logs `source=S3 aperture ranges (IRSA fallback)`. Individual
+range-cutout timings, output sizes, and cache hits are available at DEBUG; S3
+failures, retries, and fallbacks are logged at INFO/WARNING. S3 changes the
+download stage only: it cannot resolve a TAP `502` or a wait in `stage=discovery`.
 
 ## Design decisions worth knowing
 

@@ -7,8 +7,10 @@ It checks, step by step, the assumptions the backend makes about IRSA:
   1. the TAP query returns SPHEREx images for WISE 0855,
   2. a cutout downloads and has the expected extensions,
   3. the WCS-WAVE lookup gives a sensible wavelength for the detector,
-  4. the full frames pipeline produces PNG frames.
+  4. an aperture cutout preserves the IRSA cutout's photometry,
+  5. the full frames pipeline produces PNG frames.
 """
+import math
 import sys
 import time
 from pathlib import Path
@@ -47,7 +49,20 @@ def main():
           f"(detector {DET} should be {lo}-{hi} um), version {c.version}")
     assert lo - 0.05 <= wl <= hi + 0.05, "Wavelength looks wrong - check _wavelength_maps()"
 
-    print("[4] Full frames pipeline (fov 0.15 deg, 30 frames)...")
+    print("[4] Aperture cutout (S3 ranges, with IRSA fallback)...")
+    t0 = time.time()
+    aperture_data = irsa_client.fetch_aperture_cutout(images[0]["base_url"], ra, dec, 0.04)
+    assert aperture_data, "Aperture cutout download failed"
+    aperture = processing.parse_cutout(aperture_data, images[0])
+    point = processing.aperture_point(aperture, ra, dec)
+    reference = processing.aperture_point(c, ra, dec)
+    assert (point is None) == (reference is None), "Aperture cutout changed photometry coverage"
+    if point is not None:
+        for key in ("wavelength_um", "flux_jy", "err_jy"):
+            assert math.isclose(point[key], reference[key], rel_tol=1e-5, abs_tol=1e-10), key
+    print(f"    {len(aperture_data) / 1024:.0f} kB in {time.time() - t0:.1f}s; photometry matches")
+
+    print("[5] Full frames pipeline (fov 0.15 deg, 30 frames)...")
     t0 = time.time()
     res = pipeline.build_frames(ra, dec, 0.15, DET, max_frames=30)
     print(f"    {res['counts']} in {time.time() - t0:.1f}s")
