@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import logging
 import warnings
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 from astropy.time import Time
@@ -32,6 +32,93 @@ def _nanmean(stack: np.ndarray) -> np.ndarray:
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         return np.nanmean(stack, axis=0)
+
+
+def _nanmax(stack: np.ndarray) -> np.ndarray:
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        return np.nanmax(stack, axis=0)
+
+
+def _build_composites_and_candidates(
+    frames: List[Dict[str, Any]],
+    grid_wcs,
+    scale: float,
+) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
+    """Build multi-epoch co-adds ('add together'), epoch difference images
+    ('subtract images taken at different times'), and moving/variable candidates.
+    """
+    if not frames:
+        return {
+            "coadd_mean_image": None,
+            "max_projection_image": None,
+            "epoch1_image": None,
+            "epoch2_image": None,
+            "epoch_diff_image": None,
+            "epoch_diff_color_image": None,
+            "epoch1_mjd_range": None,
+            "epoch2_mjd_range": None,
+            "epoch1_n_frames": 0,
+            "epoch2_n_frames": 0,
+        }, []
+
+    raw_arrays = [f.get("array").copy() for f in frames]
+    stack = np.stack(raw_arrays)
+    coadd_mean = _nanmean(stack)
+    max_proj = _nanmax(stack)
+    coadd_png = processing.encode_frames([coadd_mean], stretch="asinh")[0]
+    max_png = processing.encode_frames([max_proj], stretch="asinh")[0]
+
+    if len(frames) < 2:
+        mjd0 = float(frames[0].get("mjd") or 0.0)
+        return {
+            "coadd_mean_image": coadd_png,
+            "max_projection_image": max_png,
+            "epoch1_image": coadd_png,
+            "epoch2_image": None,
+            "epoch_diff_image": None,
+            "epoch_diff_color_image": None,
+            "epoch1_mjd_range": [mjd0, mjd0],
+            "epoch2_mjd_range": None,
+            "epoch1_n_frames": 1,
+            "epoch2_n_frames": 0,
+        }, []
+
+    ep1_frames, ep2_frames = processing.split_epochs(frames)
+    ep1_arr = _nanmean(np.stack([f.get("array") for f in ep1_frames]))
+    ep2_arr = _nanmean(np.stack([f.get("array") for f in ep2_frames]))
+    ep1_png, ep2_png = processing.encode_frames([ep1_arr, ep2_arr], stretch="asinh")
+
+    diff_arr = ep2_arr - ep1_arr
+    diff_gray_png = processing.encode_frames([diff_arr], stretch="linear")[0]
+    diff_color_png = processing.encode_diverging_png(diff_arr)
+
+    mjd1_list = [float(f.get("mjd")) for f in ep1_frames if f.get("mjd") is not None]
+    mjd2_list = [float(f.get("mjd")) for f in ep2_frames if f.get("mjd") is not None]
+    mjd1_mean = float(np.mean(mjd1_list)) if mjd1_list else None
+    mjd2_mean = float(np.mean(mjd2_list)) if mjd2_list else None
+
+    candidates = processing.detect_candidates(
+        ep1_arr,
+        ep2_arr,
+        grid_wcs,
+        mjd1=mjd1_mean,
+        mjd2=mjd2_mean,
+        pixel_scale_arcsec=scale,
+    )
+    composites = {
+        "coadd_mean_image": coadd_png,
+        "max_projection_image": max_png,
+        "epoch1_image": ep1_png,
+        "epoch2_image": ep2_png,
+        "epoch_diff_image": diff_gray_png,
+        "epoch_diff_color_image": diff_color_png,
+        "epoch1_mjd_range": [min(mjd1_list), max(mjd1_list)] if mjd1_list else None,
+        "epoch2_mjd_range": [min(mjd2_list), max(mjd2_list)] if mjd2_list else None,
+        "epoch1_n_frames": len(ep1_frames),
+        "epoch2_n_frames": len(ep2_frames),
+    }
+    return composites, candidates
 
 
 def _bin_frames(frames: List[Dict[str, Any]], bin_days: float) -> List[Dict[str, Any]]:
@@ -105,14 +192,25 @@ def build_frames(ra: float, dec: float, fov: float, det: int, *,
         })
 
     frames = _bin_frames(frames, bin_days)
+    composites, candidates = _build_composites_and_candidates(frames, grid_wcs, scale)
 
-    signed = subtract == "median"
-    if subtract == "median" and len(frames) > 1:
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            med = np.nanmedian(np.stack([f.get("array") for f in frames]), axis=0)
-        for f in frames:
-            f["array"] = f.get("array") - med
+    signed = subtract in ("median", "first", "prev")
+    if len(frames) > 1:
+        if subtract == "median":
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                med = np.nanmedian(np.stack([f.get("array") for f in frames]), axis=0)
+            for f in frames:
+                f["array"] = f.get("array") - med
+        elif subtract == "first":
+            base = frames[0].get("array").copy()
+            for f in frames:
+                f["array"] = f.get("array") - base
+        elif subtract == "prev":
+            raw_copy = [f.get("array").copy() for f in frames]
+            frames[0]["array"] = raw_copy[0] - raw_copy[1]
+            for i in range(1, len(frames)):
+                frames[i]["array"] = raw_copy[i] - raw_copy[i - 1]
 
     if stretch == "auto":
         stretch = "linear" if signed else "asinh"
@@ -145,6 +243,8 @@ def build_frames(ra: float, dec: float, fov: float, det: int, *,
         "counts": {"images_found": n_found, "requested": len(images),
                    "failed": failed, "frames_returned": len(out_frames)},
         "frames": out_frames,
+        "composites": composites,
+        "candidates": candidates,
     }
 
 

@@ -7,13 +7,13 @@ Every endpoint that takes a position accepts **either** `ra` + `dec` (ICRS degre
 
 | Param | Default | Meaning |
 |---|---|---|
-| `ra`, `dec` / `target` | required | Position, or a name such as `wise0855` or `Barnard's Star` |
+| `ra`, `dec` / `target` | required | Position (decimal degrees or sexagesimal HMS/DMS like `08h55m10.831s`), or a target name / coordinate string |
 | `epoch` | 2026.0 | Decimal year; only used with `target` for high-proper-motion targets |
 | `fov` | 0.1 | Field of view in degrees (max 1.0). Larger = longer load |
 | `det` | 2 | Detector 1-6. Wavelength ranges: D1 0.75-1.09, D2 1.10-1.62, D3 1.63-2.41, D4 2.42-3.82, D5 3.83-4.41, D6 4.42-5.00 um |
 | `bin_days` | 0 | Average frames inside N-day bins (higher S/N); 0 = off |
 | `sky` | `median` | Background removal: `none`, `zodi` (ZODI model), `median` (per-frame median) |
-| `subtract` | `none` | `median` subtracts the per-pixel median over time, so static sources vanish |
+| `subtract` | `none` | `none`, `median` (per-pixel median over time), `first` (minus frame 0), `prev` (minus previous frame) |
 | `mask` | true | Mask bad-flag pixels (transparent) |
 | `max_frames` | 200 | Evenly thin the frame list (0 = all) |
 | `stretch` | `auto` | `asinh`, `linear`; `auto` = linear when subtracting |
@@ -34,6 +34,23 @@ Response (abbreviated):
       "wavelength_um": 1.31, "wavelength_range_um": [1.31, 1.31], "bandwidth_um": 0.03,
       "n_stacked": 1, "version": "...", "flag_fraction": 0.012,
       "image": "data:image/png;base64,..." }
+  ],
+  "composites": {
+    "coadd_mean_image": "data:image/png;base64,...",
+    "max_projection_image": "data:image/png;base64,...",
+    "epoch1_image": "data:image/png;base64,...",
+    "epoch2_image": "data:image/png;base64,...",
+    "epoch_diff_image": "data:image/png;base64,...",
+    "epoch_diff_color_image": "data:image/png;base64,...",
+    "epoch1_mjd_range": [60800.0, 60805.0],
+    "epoch2_mjd_range": [60980.0, 60985.0],
+    "epoch1_n_frames": 40,
+    "epoch2_n_frames": 42
+  },
+  "candidates": [
+    { "kind": "mover", "snr": 14.2, "x": 29.0, "y": 24.0, "from_x": 29.0, "from_y": 29.0,
+      "ra": 133.795, "dec": -7.2365, "from_ra": 133.795, "from_dec": -7.245,
+      "shift_px": 5.0, "shift_arcsec": 30.75, "proper_motion_arcsec_yr": 62.3 }
   ]
 }
 ```

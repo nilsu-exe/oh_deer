@@ -5,7 +5,7 @@ import numpy as np
 import pytest
 from pydantic import ValidationError
 
-from app import main, pipeline, spectral_id
+from app import main, pipeline, spectral_id, targets
 from synth import make_mef
 
 ICES_AND_BRG = [(3.05, 0.30, -0.30), (4.27, 0.08, -0.35), (2.166, 0.05, +0.60)]
@@ -166,3 +166,77 @@ def test_analyze_and_spectrum_handlers(monkeypatch):
     assert "analysis" in spec
     assert spec["analysis"]["redshift"]["z"] == pytest.approx(0.158)
     assert spec["analysis"]["cosmology"]["regime"] == "extragalactic"
+
+
+def test_sexagesimal_and_coordinate_resolution():
+    # Exact string from the NASA Space Apps Challenge prompt
+    queries = [
+        "08h55m10.831s -7d14m42.53s",
+        "08h55m10.831s, -7d14m42.53s",
+        "Right Ascension 08h55m10.831s, declination -7d14m42.53s",
+        "08:55:10.831 -07:14:42.53",
+        "08 55 10.831 -07 14 42.53",
+        "133.795129, -7.245147",
+        "WISE 0855",
+    ]
+    for q in queries:
+        info = targets.resolve(q)
+        assert info["ra"] == pytest.approx(133.795129, abs=2e-5), q
+        assert info["dec"] == pytest.approx(-7.245147, abs=2e-5), q
+        assert info["ra_hms"].startswith("08h55m10.83")
+        assert info["dec_dms"].startswith("-07d14m42.5")
+
+    # Separate sexagesimal ra & dec parameters in _center and pixel_to_sky
+    ra_deg, dec_deg, info = main._center("08h55m10.831s", "-7d14m42.53s", None, None)
+    assert ra_deg == pytest.approx(133.795129, abs=2e-5)
+    assert dec_deg == pytest.approx(-7.245147, abs=2e-5)
+    assert info["ra_hms"] == "08h55m10.831s"
+
+    sky = main.pixel_to_sky(ra="08h55m10.831s", dec="-7d14m42.53s", fov=0.1, x=29, y=29)
+    assert sky["ra"] == pytest.approx(133.795129, abs=2e-5)
+    assert "ra_hms" in sky and "dec_dms" in sky
+
+
+def test_coadds_epoch_diff_and_candidate_detection(monkeypatch):
+    ra0, dec0 = 133.795, -7.245
+    # 4 exposures across 2 epochs (180 days apart): star shifts north by 5 pixels in Epoch 2
+    shift_deg = 5 * 6.15 / 3600.0
+    mjds = [60800.0, 60801.0, 60980.0, 60981.0]
+    decs = [dec0, dec0, dec0 + shift_deg, dec0 + shift_deg]
+    metas, contents = [], []
+    for i, (mjd, dec_s) in enumerate(zip(mjds, decs)):
+        metas.append({
+            "image": {"s3": f"https://example.invalid/s3/{i}.fits", "irsa": f"https://example.invalid/{i}.fits"},
+            "mjd": mjd, "det": 2, "bandpass": "SPHEREx-D2",
+        })
+        contents.append(make_mef(ra0, dec_s, ra0, dec0, rot_deg=10.0 * i))
+
+    monkeypatch.setattr(pipeline.irsa_client, "query_images", lambda ra, dec, det=None: metas)
+    monkeypatch.setattr(pipeline.irsa_client, "fetch_all", lambda images, ra, dec, size: list(zip(metas, contents)))
+
+    res = pipeline.build_frames(ra0, dec0, 0.1, 2)
+    comp = res["composites"]
+    assert comp["coadd_mean_image"].startswith("data:image/png;base64,")
+    assert comp["max_projection_image"].startswith("data:image/png;base64,")
+    assert comp["epoch1_image"].startswith("data:image/png;base64,")
+    assert comp["epoch2_image"].startswith("data:image/png;base64,")
+    assert comp["epoch_diff_image"].startswith("data:image/png;base64,")
+    assert comp["epoch_diff_color_image"].startswith("data:image/png;base64,")
+    assert comp["epoch1_n_frames"] == 2 and comp["epoch2_n_frames"] == 2
+
+    # Moving star must be detected as a dipole ("mover") shifting ~5 pixels
+    movers = [c for c in res["candidates"] if c["kind"] == "mover"]
+    assert len(movers) >= 1
+    top = movers[0]
+    assert top["shift_px"] == pytest.approx(5.0, abs=1.5)
+    assert top["shift_arcsec"] == pytest.approx(5.0 * 6.15, abs=10.0)
+    assert top["proper_motion_arcsec_yr"] is not None and top["proper_motion_arcsec_yr"] > 30.0
+    assert top["y"] < top["from_y"]  # moved north -> smaller PNG y (top-left origin)
+
+    # Also test subtract="first" and subtract="prev"
+    res_first = pipeline.build_frames(ra0, dec0, 0.1, 2, subtract="first")
+    assert res_first["query"]["stretch"] == "linear"
+    res_prev = pipeline.build_frames(ra0, dec0, 0.1, 2, subtract="prev")
+    assert res_prev["query"]["stretch"] == "linear"
+
+

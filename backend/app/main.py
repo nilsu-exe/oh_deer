@@ -4,7 +4,7 @@ from __future__ import annotations
 import logging
 import sys
 from pathlib import Path
-from typing import List, Literal, Optional
+from typing import List, Literal, Optional, Union
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -34,9 +34,9 @@ async def log_request_start(request, call_next):
     return response
 
 
-def _center(ra: Optional[float], dec: Optional[float], target: Optional[str],
-            epoch: Optional[float]):
-    """Accept either ra+dec (degrees) or a target name. Returns (ra, dec, info)."""
+def _center(ra: Optional[Union[float, str]], dec: Optional[Union[float, str]],
+            target: Optional[str], epoch: Optional[float]):
+    """Accept ra+dec (degrees or sexagesimal HMS/DMS) or a target name/coord string."""
     if target:
         try:
             info = targets.resolve(target, epoch)
@@ -44,10 +44,14 @@ def _center(ra: Optional[float], dec: Optional[float], target: Optional[str],
             raise HTTPException(status_code=404, detail=str(exc))
         return info.get("ra"), info.get("dec"), info
     if ra is None or dec is None:
-        raise HTTPException(status_code=422, detail="Provide ra and dec (degrees) or target.")
-    if not (0.0 <= ra < 360.0 and -90.0 <= dec <= 90.0):
-        raise HTTPException(status_code=422, detail="ra must be in [0,360) and dec in [-90,90].")
-    return ra, dec, {"name": None, "ra": ra, "dec": dec, "pm_applied": False}
+        raise HTTPException(status_code=422, detail="Provide ra and dec (degrees or HMS/DMS) or target.")
+    try:
+        ra_deg = targets.parse_ra(ra)
+        dec_deg = targets.parse_dec(dec)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    sex = targets.format_sexagesimal(ra_deg, dec_deg)
+    return ra_deg, dec_deg, {"name": None, "ra": ra_deg, "dec": dec_deg, **sex, "pm_applied": False}
 
 
 @app.get("/api/health")
@@ -71,15 +75,18 @@ def resolve(name: str, epoch: Optional[float] = None):
 
 @app.get("/api/frames")
 def frames(
-    ra: Optional[float] = None,
-    dec: Optional[float] = None,
-    target: Optional[str] = Query(None, description="Name instead of ra/dec"),
+    ra: Optional[Union[float, str]] = None,
+    dec: Optional[Union[float, str]] = None,
+    target: Optional[str] = Query(None, description="Target name or coordinate string instead of ra/dec"),
     epoch: Optional[float] = Query(None, description="Decimal year for proper-motion targets"),
     fov: float = Query(0.1, gt=0.005, le=1.0, description="Field of view, degrees"),
     det: int = Query(2, ge=1, le=6, description="Detector array 1-6"),
     bin_days: float = Query(0.0, ge=0.0, description="Average frames within N-day bins (0 = off)"),
     sky: Literal["none", "zodi", "median"] = "median",
-    subtract: Literal["none", "median"] = Query("none", description="Subtract per-pixel median over time"),
+    subtract: Literal["none", "median", "first", "prev"] = Query(
+        "none",
+        description="Subtraction mode: 'none', 'median' (over all frames), 'first' (vs frame 0), 'prev' (vs previous frame)",
+    ),
     mask: bool = True,
     scale: float = Query(config.PIXEL_SCALE_ARCSEC, ge=1.0, le=30.0),
     max_frames: int = Query(200, ge=0, le=2000),
@@ -95,8 +102,8 @@ def frames(
 
 @app.get("/api/spectrum")
 def spectrum(
-    ra: Optional[float] = None,
-    dec: Optional[float] = None,
+    ra: Optional[Union[float, str]] = None,
+    dec: Optional[Union[float, str]] = None,
     target: Optional[str] = None,
     epoch: Optional[float] = None,
     aperture_px: float = Query(1.5, ge=0.5, le=5.0),
@@ -145,17 +152,23 @@ def spectral_features():
 
 
 @app.get("/api/pixel_to_sky")
-def pixel_to_sky(ra: float, dec: float, fov: float = 0.1,
+def pixel_to_sky(ra: Union[float, str], dec: Union[float, str], fov: float = 0.1,
                  scale: float = config.PIXEL_SCALE_ARCSEC, x: float = 0.0, y: float = 0.0):
     """Convert a click on a returned frame to sky coordinates.
 
     x, y are PNG pixel coordinates (origin top-left, y down) of a frame returned
     by /api/frames with the same ra, dec, fov, scale.
     """
-    grid, shape = processing.make_grid(ra, dec, fov, scale)
+    try:
+        ra_deg = targets.parse_ra(ra)
+        dec_deg = targets.parse_dec(dec)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    grid, shape = processing.make_grid(ra_deg, dec_deg, fov, scale)
     row = shape[0] - 1 - y          # PNG rows are flipped vs array rows
     ra_out, dec_out = grid.wcs_pix2world([[x, row]], 0)[0]
-    return {"ra": float(ra_out), "dec": float(dec_out)}
+    ra_f, dec_f = float(ra_out), float(dec_out)
+    return {"ra": ra_f, "dec": dec_f, **targets.format_sexagesimal(ra_f, dec_f)}
 
 
 # The frontend is a sibling of backend/ in the repository root.
