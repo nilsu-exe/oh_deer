@@ -24,13 +24,16 @@ def _metas(n, det=2, dt_days=1.0, t0=60800.0):
 
 def _patch_irsa(monkeypatch, metas, contents, fail_index=None):
     monkeypatch.setattr(irsa_client, "query_images", lambda ra, dec, det=None: metas)
+    fetch_modes = []
 
-    def fake_fetch_all(images, ra, dec, size):
+    def fake_fetch_all(images, ra, dec, size, *, aperture_only=False):
+        fetch_modes.append(aperture_only)
         out = []
         for i, m in enumerate(images):
             out.append((m, None if i == fail_index else contents[i]))
         return out
     monkeypatch.setattr(irsa_client, "fetch_all", fake_fetch_all)
+    return fetch_modes
 
 
 # ------------------------------------------------------------ processing ---
@@ -110,7 +113,7 @@ def test_frames_endpoint(monkeypatch):
     n = 4
     metas = _metas(n)
     contents = [make_mef(RA0, DEC0 + i * 2 * 6.15 / 3600, RA0, DEC0, rot_deg=15.0 * i) for i in range(n)]
-    _patch_irsa(monkeypatch, metas, contents)
+    fetch_modes = _patch_irsa(monkeypatch, metas, contents)
     client = TestClient(app)
     r = client.get("/api/frames", params={"ra": RA0, "dec": DEC0, "fov": 0.1, "det": 2})
     assert r.status_code == 200, r.text
@@ -121,6 +124,7 @@ def test_frames_endpoint(monkeypatch):
     assert f0["image"].startswith("data:image/png;base64,")
     assert 1.10 <= f0["wavelength_um"] <= 1.62
     assert f0["date"].endswith("Z") and f0["version"] == "test-v1"
+    assert fetch_modes == [False]
 
     r2 = client.get("/api/frames", params={"ra": RA0, "dec": DEC0, "bin_days": 2})
     assert r2.json()["counts"]["frames_returned"] == 2
@@ -164,12 +168,13 @@ def test_spectrum_endpoint_sorted_by_wavelength(monkeypatch):
         contents.append(make_mef(RA0, DEC0, ra0, dec0, rot_deg=7.0 * i, n=40))
         metas.append({"base_url": f"https://example.invalid/{i}.fits", "mjd": 60800.0 + i,
                       "det": 1 + i, "bandpass": f"SPHEREx-D{1 + i}"})
-    _patch_irsa(monkeypatch, metas, contents)
+    fetch_modes = _patch_irsa(monkeypatch, metas, contents)
     body = TestClient(app).get("/api/spectrum", params={"ra": RA0, "dec": DEC0}).json()
     waves = [p["wavelength_um"] for p in body["points"]]
     assert len(waves) == 6 and waves == sorted(waves)
     assert all(p["flux_jy"] > 0 for p in body["points"])
     assert {p["det"] for p in body["points"]} == {1, 2, 3, 4, 5, 6}
+    assert fetch_modes == [True]
 
 
 def test_pixel_to_sky_center_is_the_center():

@@ -55,3 +55,48 @@ def fake_wavelength_maps(hdr, hdul, shape):
     ny, nx = shape
     wave = np.tile((1.10 + 0.52 * np.arange(ny) / (ny - 1))[:, None], (1, nx)).astype(np.float32)
     return wave, np.full(shape, 0.03, dtype=np.float32)
+
+
+def make_spectral_mef(n=100, compressed_flags=False):
+    """A real WAVE-TAB lookup, SIP distortion, unsigned flags, and large EPSF."""
+    with fits.open(io.BytesIO(make_mef(133.795, -7.245, 133.795, -7.245, n=n))) as source:
+        hdul = fits.HDUList([h.copy() for h in source])
+    hdr = hdul["IMAGE"].header
+    hdr["CTYPE1"] = "RA---TAN-SIP"
+    hdr["CTYPE2"] = "DEC--TAN-SIP"
+    hdr["A_ORDER"], hdr["B_ORDER"] = 2, 2
+    hdr["A_2_0"], hdr["B_0_2"] = 5e-6, -2e-6
+    for i in (1, 2):
+        hdr[f"CRPIX{i}W"] = 0.0
+        hdr[f"CRVAL{i}W"] = 1.0
+        hdr[f"CDELT{i}W"] = 1.0
+        hdr[f"CUNIT{i}W"] = "um"
+        hdr[f"CTYPE{i}W"] = "WAVE-TAB"
+        hdr[f"PV{i}_3W"] = i
+        hdr[f"PS{i}_0W"] = "WCS-WAVE"
+        hdr[f"PS{i}_1W"] = "VALUES"
+        hdr[f"PS{i}_2W"] = "X" if i == 1 else "Y"
+        hdr[f"CRPIX{i}A"] = 0.0
+        hdr[f"CRVAL{i}A"] = 0.0
+        hdr[f"CDELT{i}A"] = 1.0
+        hdr[f"CTYPE{i}A"] = "LINEAR"
+    flags = np.zeros((n, n), dtype=np.uint32)
+    flags[n // 2, n // 2] = (1 << 31) | (1 << 21)
+    flags[n // 2 + 1, n // 2] = 1 << 10
+    flag_hdu = fits.CompImageHDU if compressed_flags else fits.ImageHDU
+    hdul["FLAGS"] = flag_hdu(flags, name="FLAGS")
+    values = np.empty((1, 2, 2, 2), dtype=np.float32)
+    values[0, :, :, 0] = [[1.10, 1.12], [1.60, 1.62]]
+    values[0, :, :, 1] = 0.03
+    hdul.append(fits.BinTableHDU.from_columns([
+        fits.Column(name="EPSF", format="1089D", array=np.zeros((256, 1089))),
+    ], name="EPSF"))
+    hdul.append(fits.BinTableHDU.from_columns([
+        fits.Column(name="X", format="2J", dim="(2)", array=[[1, n]]),
+        fits.Column(name="Y", format="2J", dim="(2)", array=[[1, n]]),
+        fits.Column(name="VALUES", format="8E", dim="(2,2,2)", array=values),
+    ], name="WCS-WAVE"))
+    with hdul:
+        buf = io.BytesIO()
+        hdul.writeto(buf)
+        return buf.getvalue()

@@ -1,0 +1,217 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+@import "@fontsource/geist/400.css";
+@import "@fontsource/geist-mono/400.css";
+
+@custom-variant dark (&:is(.dark *));
+
+/* All eight local color variables from SPHEREx / Colors / Mode 1.
+   Original floating-point values, aliases and styles: design/figma-tokens.json. */
+:root {
+  --bg1: #080808;
+  --bg2: #131313;
+  --bg3: #252525;
+  --bg4: #353535;
+  --bg2-glass: color-mix(in srgb, var(--bg2) 75%, transparent);
+  --bg3-glass: color-mix(in srgb, var(--bg3) 75%, transparent);
+  --border: #505050;
+  --primary: #5978a6;
+  /* The canvas fill is an unbound Figma frame color. */
+  --canvas: #0b0f15;
+  --background: var(--canvas);
+  --foreground: rgb(255 255 255 / 80%);
+  --card: var(--bg2);
+  --card-foreground: var(--foreground);
+  --popover: var(--bg2-glass);
+  --popover-foreground: var(--foreground);
+  --primary-foreground: #fff;
+  --secondary: var(--bg3);
+  --secondary-foreground: var(--foreground);
+  --muted: var(--bg2);
+  --muted-foreground: rgb(255 255 255 / 50%);
+  --accent: var(--bg4);
+  --accent-foreground: #fff;
+  --destructive: #e5a29a;
+  --input: var(--border);
+  --ring: var(--primary);
+  --radius: 24px;
+}
+
+@theme inline {
+  --font-sans: 'Geist', sans-serif;
+  --font-heading: var(--font-sans);
+  --font-mono: 'Geist Mono', monospace;
+  --color-bg1: var(--bg1);
+  --color-bg2: var(--bg2);
+  --color-bg3: var(--bg3);
+  --color-bg4: var(--bg4);
+  --color-bg2-glass: var(--bg2-glass);
+  --color-bg3-glass: var(--bg3-glass);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: var(--radius);
+}
+
+/* Figma's two named text styles, including their full typography recipe. */
+@utility ui-normal {
+  font-family: var(--font-sans);
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 18px;
+  letter-spacing: 0;
+}
+@utility ui-mono {
+  font-family: var(--font-mono);
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 18px;
+  letter-spacing: 0;
+  font-variant-numeric: tabular-nums;
+}
+/* One shared glass recipe. Figma blur radius 32 corresponds to CSS blur 16. */
+@utility glass {
+  background: var(--glass-fill, var(--bg3-glass));
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-radius: var(--radius);
+  box-shadow: inset 0 0.5px 0 rgb(89 89 89 / 25%), 0 1px 4px 1px rgb(0 0 0 / 1%), 0 1px 12px rgb(0 0 0 / 2%);
+}
+
+@layer base {
+  * { @apply border-border; }
+  html, body, #root { width: 100%; height: 100%; margin: 0; overflow: hidden; }
+  html { color-scheme: dark; }
+  body { @apply bg-background text-foreground font-sans; }
+  button, input { font: inherit; }
+  button { cursor: pointer; }
+  button:disabled { cursor: default; }
+  button:focus-visible, input:focus-visible, [tabindex]:focus-visible { outline: 2px solid var(--primary); outline-offset: 3px; }
+  input { min-width: 0; outline: none; }
+  input::selection { background: var(--primary); color: white; }
+}
+
+.viewer { position: relative; width: 100%; height: 100%; height: 100dvh; isolation: isolate; }
+.sky-canvas { position: absolute; inset: 0; overflow: hidden; touch-action: none; cursor: grab; outline-offset: -4px; }
+.sky-canvas.is-dragging { cursor: grabbing; }
+.sky-image { position: absolute; left: 50%; top: 50%; transform-origin: center; pointer-events: none; will-change: transform; background: var(--bg1); }
+.sky-image img { display: block; width: 100%; height: 100%; image-rendering: pixelated; user-select: none; }
+.top-toolbar { position: absolute; z-index: 10; top: max(16px, env(safe-area-inset-top)); left: 50%; transform: translateX(-50%); width: min(633px, calc(100% - 32px)); padding: 4px; display: flex; align-items: center; gap: 8px; }
+.target-pill { display: flex; width: 145px; min-width: 0; flex-shrink: 0; }
+.toolbar-button { height: 26px; min-height: 26px; padding: 4px 12px; gap: 6px; font-size: 14px; line-height: 18px; font-weight: 400; border: 0; border-radius: 24px; color: var(--foreground); transition: background-color 120ms ease, color 120ms ease; }
+.toolbar-button:hover { background-color: var(--bg4); color: #fff; }
+.toolbar-button:disabled { opacity: 0.4; }
+.toolbar-button.is-active { --glass-fill: var(--primary); color: #fff; }
+.toolbar-button.is-active:hover { background-color: var(--primary); filter: brightness(1.12); }
+.target-trigger { flex: 1; min-width: 0; justify-content: flex-start; overflow: hidden; text-overflow: ellipsis; padding: 4px 0 4px 8px; display: block; text-align: left; }
+.load-button { width: 30px; flex-shrink: 0; padding: 4px 8px; }
+.coordinate-group { display: flex; gap: 4px; min-width: 0; flex: 1; }
+.coordinate-pill, .fov-pill { height: 26px; display: flex; align-items: center; padding: 4px 8px; gap: 8px; min-width: 0; }
+.coordinate-pill { flex: 1; }
+.coordinate-pill > span, .fov-pill > span { color: var(--muted-foreground); }
+.coordinate-pill input, .fov-pill input { width: 100%; padding: 0; border: 0; background: transparent; color: var(--foreground); border-radius: 2px; }
+.coordinate-pill:focus-within, .fov-pill:focus-within { outline: 2px solid var(--primary); outline-offset: 3px; }
+.coordinate-pill input:focus-visible, .fov-pill input:focus-visible { outline: none; }
+.fov-pill { flex: 0 0 99px; gap: 5px; }
+.fov-pill input { width: 34px; }
+.fov-pill .fov-unit { margin-left: -4px; color: var(--foreground); }
+.detector-trigger { width: 51px; flex-shrink: 0; padding-inline: 16px; }
+.bottom-toolbar { position: absolute; z-index: 10; bottom: max(16px, env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%); width: min(671px, calc(100% - 32px)); pointer-events: none; }
+.bottom-toolbar button, .bottom-toolbar .timeline-row { pointer-events: auto; }
+.playback-row { position: relative; display: flex; justify-content: space-between; align-items: center; height: 26px; margin-bottom: 8px; }
+.playback-group, .zoom-group { display: flex; align-items: center; gap: 4px; }
+.zoom-group { position: absolute; left: 50%; transform: translateX(-50%); }
+.icon-button { width: 26px; padding: 4px; }
+.zoom-value { min-width: 63px; font-variant-numeric: tabular-nums; }
+.timeline-row { display: flex; align-items: center; gap: 8px; }
+.date-pill { height: 26px; padding: 4px 12px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.timeline-pill { height: 26px; min-width: 0; flex: 1; display: flex; align-items: center; padding: 0 12px; }
+.timeline-slider { width: 100%; height: 26px; }
+.timeline-slider [data-slot="slider-track"] { height: 2px; background: var(--border); border-radius: 2px; }
+.timeline-slider [data-slot="slider-range"] { background: var(--primary); }
+.timeline-slider [data-slot="slider-thumb"] { width: 10px; height: 10px; border: 0; background: #d9d9d9; box-shadow: none; }
+.timeline-slider [data-slot="slider-thumb"]::before { content: ''; position: absolute; inset: -8px; }
+.timeline-slider[data-disabled] { opacity: 0.4; }
+.frame-info { position: absolute; left: 50%; transform: translateX(-50%); bottom: 70px; width: max-content; max-width: calc(100vw - 32px); text-align: center; font-size: 11px; line-height: 17px; color: rgb(255 255 255 / 64%); text-shadow: 0 1px 3px #000; pointer-events: auto; }
+.frame-info p { margin: 0; }
+.load-count { color: var(--muted-foreground); }
+.partial-failure { color: #d5b698; }
+.canvas-message { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: min(380px, calc(100vw - 48px)); text-align: center; display: flex; flex-direction: column; align-items: center; gap: 12px; pointer-events: none; }
+.canvas-message > svg { color: var(--muted-foreground); }
+.canvas-message p { margin: 0; font-size: 15px; }
+.canvas-message > span { font-size: 12px; line-height: 18px; color: var(--muted-foreground); }
+.canvas-message .retry-button { pointer-events: auto; margin-top: 4px; }
+.error-detail { overflow-wrap: anywhere; max-height: 144px; overflow: auto; pointer-events: auto; }
+.loading-spinner { animation: spin 1.5s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.validation-message { position: absolute; z-index: 11; top: 62px; left: 50%; transform: translateX(-50%); padding: 10px 14px; display: flex; align-items: center; gap: 8px; max-width: calc(100% - 32px); font-size: 12px; color: var(--destructive); }
+.validation-message > svg { flex-shrink: 0; }
+.validation-message button { margin-left: 4px; font-size: 18px; }
+.target-popover { width: 290px; padding: 8px; border: 1px solid rgb(255 255 255 / 7%); border-radius: 18px; --glass-fill: var(--bg2-glass); }
+.target-search { display: flex; align-items: center; gap: 8px; padding: 8px 9px; color: var(--muted-foreground); }
+.target-search input { width: 100%; padding: 0; border: 0; background: transparent; color: var(--foreground); font-size: 14px; }
+.menu-caption { margin: 12px 10px 4px; font-size: 10px; line-height: 16px; letter-spacing: 0.09em; color: var(--muted-foreground); }
+.preset { display: flex; justify-content: space-between; align-items: center; width: 100%; padding: 9px 10px; text-align: left; border-radius: 10px; gap: 8px; }
+.preset:hover, .preset:focus-visible { background: var(--bg4); }
+.preset-name, .preset-description { display: block; }
+.preset-description { font-size: 11px; line-height: 16px; color: var(--muted-foreground); }
+.preset > svg { color: var(--primary); }
+.menu-note { margin: 10px; color: var(--muted-foreground); font-size: 11px; line-height: 17px; }
+.resolve-name { width: 100%; padding-inline: 10px; justify-content: space-between; font-size: 12px; white-space: normal; height: auto; min-height: 32px; }
+.viewer-menu { --glass-fill: var(--bg2-glass); min-width: 218px; padding: 6px; border: 1px solid rgb(255 255 255 / 7%); border-radius: 16px; }
+.viewer-menu [data-slot="dropdown-menu-radio-item"] { min-height: 32px; border-radius: 8px; font-size: 14px; font-weight: 400; }
+.viewer-menu [data-slot="dropdown-menu-label"] { padding: 7px 10px; font-size: 11px; font-weight: 400; color: var(--muted-foreground); }
+.viewer-menu [data-slot="dropdown-menu-separator"] { background: rgb(255 255 255 / 7%); }
+.detector-option { gap: 16px; }
+.detector-range { margin-left: auto; font-size: 11px; color: var(--muted-foreground); }
+.detector-note { margin: 8px 10px 5px; }
+.speed-menu { min-width: 150px; }
+.help-popover { --glass-fill: var(--bg2-glass); width: 290px; padding: 16px; border: 1px solid rgb(255 255 255 / 7%); border-radius: 18px; }
+.help-popover > p:first-child { margin: 0 0 12px; }
+.help-popover dl { display: grid; grid-template-columns: 1fr auto; gap: 6px; font-size: 12px; }
+.help-popover dd { color: var(--muted-foreground); text-align: right; }
+.help-popover .menu-note { margin: 14px 0 0; }
+
+@media (max-width: 639px) {
+  .top-toolbar { display: grid; grid-template-columns: 1fr 51px; gap: 8px; width: calc(100% - 24px); padding: 0; }
+  .target-pill { width: 100%; }
+  .coordinate-group { grid-column: 1 / -1; grid-row: 2; width: 100%; }
+  .coordinate-pill { gap: 4px; padding-inline: 8px; }
+  .coordinate-pill, .fov-pill { font-size: 12px; }
+  .fov-pill { flex-basis: 90px; }
+  .detector-trigger { grid-column: 2; grid-row: 1; }
+  .bottom-toolbar { width: calc(100% - 24px); }
+  .timeline-row { gap: 5px; }
+  .date-pill { padding-inline: 8px; font-size: 11px; }
+  .timeline-pill { padding-inline: 10px; }
+  .playback-group { gap: 3px; }
+  .playback-group > .toolbar-button { padding-inline: 9px; }
+  .playback-group > .icon-button { padding: 4px; }
+  .zoom-group { left: auto; right: 34px; transform: none; gap: 3px; }
+  .zoom-value { min-width: 52px; padding-inline: 8px; }
+  .frame-info { font-size: 10px; }
+  .validation-message { top: 86px; width: max-content; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition-duration: 0ms !important; animation-duration: 0ms !important; }
+  .loading-spinner { animation: none; }
+}

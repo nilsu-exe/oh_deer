@@ -6,6 +6,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 CACHE_DIR = Path(os.environ.get("SPHEREX_CACHE_DIR", BASE_DIR / ".cache"))
 
 IRSA_BASE = "https://irsa.ipac.caltech.edu"
+SPHEREX_S3_BASE = "https://nasa-irsa-spherex.s3.us-east-1.amazonaws.com"
 
 # --- Network behaviour -------------------------------------------------------
 # IRSA's server digests a limited number of parallel calls; 10 worked well in
@@ -14,9 +15,16 @@ MAX_PARALLEL_DOWNLOADS = int(os.environ.get("SPHEREX_MAX_PARALLEL", "10"))
 HTTP_TIMEOUT = 120          # seconds; SPHEREx reads can be slow
 RETRIES = 3
 RETRY_BACKOFF = 2.0         # seconds * attempt number
+LOG_LEVEL = os.environ.get("SPHEREX_LOG_LEVEL", "INFO").upper()
+LOG_HEARTBEAT_SECONDS = float(os.environ.get("SPHEREX_LOG_HEARTBEAT", "10"))
 
 # TAP results are cached only this long so newly ingested weekly data shows up.
 TAP_TTL_SECONDS = int(os.environ.get("SPHEREX_TAP_TTL", str(6 * 3600)))
+TAP_HTTP_TIMEOUT = float(os.environ.get("SPHEREX_TAP_TIMEOUT", "30"))
+DISCOVERY_MIRROR_PATH = Path(os.environ.get("SPHEREX_DISCOVERY_MIRROR", CACHE_DIR / "discovery.sqlite3"))
+DISCOVERY_MODE = os.environ.get("SPHEREX_DISCOVERY_MODE", "auto").lower()
+if DISCOVERY_MODE not in ("auto", "local", "tap"):
+    raise ValueError("SPHEREX_DISCOVERY_MODE must be auto, local, or tap")
 
 # --- Imaging ----------------------------------------------------------------
 # SPHEREx pixels are ~6.15 arcsec (derived from the IMAGE header PC matrix).

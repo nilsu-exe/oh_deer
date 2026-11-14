@@ -1,0 +1,413 @@
+{
+  "source": "https://www.figma.com/design/pPMqMZxsvxc2skYFdOVArC/SPHEREx",
+  "collection": {
+    "id": "VariableCollectionId:1:8",
+    "name": "Colors",
+    "modes": [
+      {
+        "name": "Mode 1",
+        "modeId": "1:0"
+      }
+    ],
+    "defaultModeId": "1:0"
+  },
+  "variables": [
+    {
+      "id": "VariableID:1:9",
+      "name": "bg1",
+      "type": "COLOR",
+      "valuesByMode": {
+        "1:0": {
+          "r": 0.03162120282649994,
+          "g": 0.03162120282649994,
+          "b": 0.03162120282649994,
+          "a": 1
+        }
+      },
+      "scopes": [
+        "ALL_SCOPES"
+      ]
+    },
+    {
+      "id": "VariableID:1:10",
+      "name": "bg2",
+      "type": "COLOR",
+      "valuesByMode": {
+        "1:0": {
+          "r": 0.07432273775339127,
+          "g": 0.07432273775339127,
+          "b": 0.07432273775339127,
+          "a": 1
+        }
+      },
+      "scopes": [
+        "ALL_SCOPES"
+      ]
+    },
+    {
+      "id": "VariableID:1:11",
+      "name": "bg3",
+      "type": "COLOR",
+      "valuesByMode": {
+        "1:0": {
+          "r": 0.14355133473873138,
+          "g": 0.14355133473873138,
+          "b": 0.14355133473873138,
+          "a": 1
+        }
+      },
+      "scopes": [
+        "ALL_SCOPES"
+      ]
+    },
+    {
+      "id": "VariableID:1:12",
+      "name": "bg4",
+      "type": "COLOR",
+      "valuesByMode": {
+        "1:0": {
+          "r": 0.2084604948759079,
+          "g": 0.2084604948759079,
+          "b": 0.2084604948759079,
+          "a": 1
+        }
+      },
+      "scopes": [
+        "ALL_SCOPES"
+      ]
+    },
+    {
+      "id": "VariableID:1:13",
+      "name": "bg2-glass",
+      "type": "COLOR",
+      "valuesByMode": {
+        "1:0": {
+          "color": {
+            "type": "VARIABLE_ALIAS",
+            "id": "VariableID:1:10"
+          },
+          "opacity": 75
+        }
+      },
+      "scopes": [
+        "ALL_SCOPES"
+      ]
+    },
+    {
+      "id": "VariableID:1:17",
+      "name": "border",
+      "type": "COLOR",
+      "valuesByMode": {
+        "1:0": {
+          "r": 0.3150147795677185,
+          "g": 0.3150147795677185,
+          "b": 0.3150147795677185,
+          "a": 1
+        }
+      },
+      "scopes": [
+        "ALL_SCOPES"
+      ]
+    },
+    {
+      "id": "VariableID:1:31",
+      "name": "primary",
+      "type": "COLOR",
+      "valuesByMode": {
+        "1:0": {
+          "r": 0.3484848737716675,
+          "g": 0.4696970582008362,
+          "b": 0.6515151262283325,
+          "a": 1
+        }
+      },
+      "scopes": [
+        "ALL_SCOPES"
+      ]
+    },
+    {
+      "id": "VariableID:2:57",
+      "name": "bg3-glass",
+      "type": "COLOR",
+      "valuesByMode": {
+        "1:0": {
+          "color": {
+            "type": "VARIABLE_ALIAS",
+            "id": "VariableID:1:11"
+          },
+          "opacity": 75
+        }
+      },
+      "scopes": [
+        "ALL_SCOPES"
+      ]
+    }
+  ],
+  "textStyles": [
+    {
+      "id": "S:1e829df7aec5332eabfc8ecafcf4bbd057a7190f,",
+      "name": "ui normal",
+      "fontName": {
+        "family": "Geist",
+        "style": "Regular",
+        "variationSettings": {
+          "wght": 400
+        }
+      },
+      "fontSize": 14,
+      "lineHeight": {
+        "unit": "PIXELS",
+        "value": 18
+      },
+      "letterSpacing": {
+        "unit": "PERCENT",
+        "value": 0
+      }
+    },
+    {
+      "id": "S:53e1bcd71029494237a78077407511e5aea57d68,",
+      "name": "ui mono",
+      "fontName": {
+        "family": "Geist Mono",
+        "style": "Regular",
+        "variationSettings": {
+          "wght": 400
+        }
+      },
+      "fontSize": 14,
+      "lineHeight": {
+        "unit": "PIXELS",
+        "value": 18
+      },
+      "letterSpacing": {
+        "unit": "PERCENT",
+        "value": 0
+      }
+    }
+  ],
+  "nodes": [
+    {
+      "id": "1:7",
+      "name": "Frame 1",
+      "fills": [
+        {
+          "type": "SOLID",
+          "visible": false,
+          "opacity": 0.75,
+          "blendMode": "NORMAL",
+          "color": {
+            "r": 0.14355133473873138,
+            "g": 0.14355133473873138,
+            "b": 0.14355133473873138
+          },
+          "boundVariables": {
+            "color": {
+              "type": "VARIABLE_ALIAS",
+              "id": "VariableID:2:57"
+            }
+          }
+        }
+      ],
+      "effects": [
+        {
+          "type": "BACKGROUND_BLUR",
+          "visible": true,
+          "radius": 32,
+          "boundVariables": {},
+          "blurType": "NORMAL"
+        },
+        {
+          "type": "DROP_SHADOW",
+          "visible": true,
+          "radius": 16,
+          "boundVariables": {},
+          "color": {
+            "r": 0,
+            "g": 0,
+            "b": 0,
+            "a": 0.25
+          },
+          "offset": {
+            "x": 0,
+            "y": 1
+          },
+          "spread": 0,
+          "blendMode": "NORMAL",
+          "showShadowBehindNode": true
+        },
+        {
+          "type": "DROP_SHADOW",
+          "visible": true,
+          "radius": 4,
+          "boundVariables": {},
+          "color": {
+            "r": 0,
+            "g": 0,
+            "b": 0,
+            "a": 0.009999999776482582
+          },
+          "offset": {
+            "x": 0,
+            "y": 1
+          },
+          "spread": 1,
+          "blendMode": "NORMAL",
+          "showShadowBehindNode": false
+        },
+        {
+          "type": "INNER_SHADOW",
+          "visible": true,
+          "radius": 0,
+          "boundVariables": {},
+          "color": {
+            "r": 0.3492887020111084,
+            "g": 0.3492887020111084,
+            "b": 0.3492887020111084,
+            "a": 0.25
+          },
+          "offset": {
+            "x": 0,
+            "y": 0.5
+          },
+          "spread": 0,
+          "blendMode": "NORMAL"
+        }
+      ],
+      "cornerRadius": 24
+    },
+    {
+      "id": "2:66",
+      "name": "Frame 17",
+      "fills": [
+        {
+          "type": "SOLID",
+          "visible": true,
+          "opacity": 0.75,
+          "blendMode": "NORMAL",
+          "color": {
+            "r": 0.14355133473873138,
+            "g": 0.14355133473873138,
+            "b": 0.14355133473873138
+          },
+          "boundVariables": {
+            "color": {
+              "type": "VARIABLE_ALIAS",
+              "id": "VariableID:2:57"
+            }
+          }
+        }
+      ],
+      "effects": [
+        {
+          "type": "BACKGROUND_BLUR",
+          "visible": true,
+          "radius": 32,
+          "boundVariables": {},
+          "blurType": "NORMAL"
+        },
+        {
+          "type": "DROP_SHADOW",
+          "visible": true,
+          "radius": 12,
+          "boundVariables": {},
+          "color": {
+            "r": 0,
+            "g": 0,
+            "b": 0,
+            "a": 0.019999999552965164
+          },
+          "offset": {
+            "x": 0,
+            "y": 1
+          },
+          "spread": 0,
+          "blendMode": "NORMAL",
+          "showShadowBehindNode": false
+        },
+        {
+          "type": "DROP_SHADOW",
+          "visible": true,
+          "radius": 4,
+          "boundVariables": {},
+          "color": {
+            "r": 0,
+            "g": 0,
+            "b": 0,
+            "a": 0.009999999776482582
+          },
+          "offset": {
+            "x": 0,
+            "y": 1
+          },
+          "spread": 1,
+          "blendMode": "NORMAL",
+          "showShadowBehindNode": false
+        },
+        {
+          "type": "INNER_SHADOW",
+          "visible": true,
+          "radius": 0,
+          "boundVariables": {},
+          "color": {
+            "r": 0.3492887020111084,
+            "g": 0.3492887020111084,
+            "b": 0.3492887020111084,
+            "a": 0.25
+          },
+          "offset": {
+            "x": 0,
+            "y": 0.5
+          },
+          "spread": 0,
+          "blendMode": "NORMAL"
+        }
+      ],
+      "cornerRadius": 24
+    },
+    {
+      "id": "2:21",
+      "name": "Frame 13",
+      "fills": [
+        {
+          "type": "SOLID",
+          "visible": true,
+          "opacity": 0.75,
+          "blendMode": "NORMAL",
+          "color": {
+            "r": 0.14355133473873138,
+            "g": 0.14355133473873138,
+            "b": 0.14355133473873138
+          },
+          "boundVariables": {
+            "color": {
+              "type": "VARIABLE_ALIAS",
+              "id": "VariableID:2:57"
+            }
+          }
+        }
+      ],
+      "effects": [],
+      "cornerRadius": 24
+    },
+    {
+      "id": "1:3",
+      "name": "MacBook Air - 1",
+      "fills": [
+        {
+          "type": "SOLID",
+          "visible": true,
+          "opacity": 1,
+          "blendMode": "NORMAL",
+          "color": {
+            "r": 0.04492828994989395,
+            "g": 0.05877181515097618,
+            "b": 0.08268333226442337
+          },
+          "boundVariables": {}
+        }
+      ],
+      "effects": [],
+      "cornerRadius": 0
+    }
+  ]
+}

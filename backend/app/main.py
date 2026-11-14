@@ -1,20 +1,36 @@
 """FastAPI app. Run with:  uvicorn app.main:app --reload   (from the backend/ folder)"""
 from __future__ import annotations
 
-import logging
 from pathlib import Path
 from typing import Literal, Optional
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import config, pipeline, processing, targets
+from . import config, diagnostics, discovery_mirror, irsa_client, pipeline, processing, targets
 
-logging.basicConfig(level=logging.INFO)
+diagnostics.configure_logging()
 
 app = FastAPI(title="SPHEREx sky flipbook API", version="0.1.0")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+app.add_middleware(diagnostics.RequestLoggingMiddleware)
+
+
+@app.exception_handler(irsa_client.DiscoveryError)
+async def discovery_error(request, exc):
+    return JSONResponse(status_code=502, content={
+        "detail": "IRSA image discovery failed. The upstream TAP service may be unavailable; try again shortly.",
+        "request_id": diagnostics.request_id(),
+    })
+
+
+@app.exception_handler(irsa_client.MirrorUnavailable)
+async def mirror_unavailable(request, exc):
+    return JSONResponse(status_code=503, content={
+        "detail": str(exc), "request_id": diagnostics.request_id(),
+    })
 
 
 def _center(ra: Optional[float], dec: Optional[float], target: Optional[str],
@@ -22,7 +38,8 @@ def _center(ra: Optional[float], dec: Optional[float], target: Optional[str],
     """Accept either ra+dec (degrees) or a target name. Returns (ra, dec, info)."""
     if target:
         try:
-            info = targets.resolve(target, epoch)
+            with diagnostics.stage(targets.log, "resolution", f"target={target} epoch={epoch}"):
+                info = targets.resolve(target, epoch)
         except LookupError as exc:
             raise HTTPException(status_code=404, detail=str(exc))
         return info["ra"], info["dec"], info
@@ -38,6 +55,11 @@ def health():
     return {"status": "ok", "cache_dir": str(config.CACHE_DIR)}
 
 
+@app.get("/api/discovery/status")
+def discovery_status():
+    return {"mode": config.DISCOVERY_MODE, **discovery_mirror.status()}
+
+
 @app.get("/api/targets")
 def list_targets():
     """The five challenge test targets (names + notes)."""
@@ -47,7 +69,8 @@ def list_targets():
 @app.get("/api/resolve")
 def resolve(name: str, epoch: Optional[float] = None):
     try:
-        return targets.resolve(name, epoch)
+        with diagnostics.stage(targets.log, "resolution", f"name={name} epoch={epoch}"):
+            return targets.resolve(name, epoch)
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
 
@@ -73,6 +96,7 @@ def frames(
                                    subtract=subtract, mask=mask, scale=scale,
                                    max_frames=max_frames, stretch=stretch)
     result["resolved"] = info
+    diagnostics.set_phase("response serialization")
     return result
 
 
@@ -94,9 +118,12 @@ def spectrum(
             det_list = [int(d) for d in dets.split(",")]
         except ValueError:
             raise HTTPException(status_code=422, detail="dets must be comma-separated integers")
+        if any(d not in range(1, 7) for d in det_list):
+            raise HTTPException(status_code=422, detail="dets must be detector numbers 1-6")
     result = pipeline.build_spectrum(ra, dec, size=size, aperture_px=aperture_px,
                                      max_frames=max_frames, dets=det_list)
     result["resolved"] = info
+    diagnostics.set_phase("response serialization")
     return result
 
 
