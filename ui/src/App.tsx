@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useState } from 'react'
 import { ArrowRight, Check, CircleAlert, LoaderCircle, Minus, Pause, Play, Plus, RotateCcw, Search, Telescope } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
@@ -46,7 +46,7 @@ export default function App() {
   }, [position, fov])
 
   useEffect(() => { setCamera(INITIAL_CAMERA) }, [selection])
-  useEffect(() => { setPlaying(false); setFrameIndex(0) }, [data])
+  useLayoutEffect(() => { setPlaying(false); setFrameIndex(0) }, [data])
   useEffect(() => {
     const params = new URLSearchParams()
     if ('target' in selection) params.set('target', selection.target)

@@ -9,12 +9,17 @@ pnpm dev
 Open http://127.0.0.1:5173. Vite proxies `/api` to the existing backend at
 `http://127.0.0.1:8000`. For a different backend, set `VITE_API_BASE_URL` before
 starting Vite. `pnpm build` checks types and creates `dist/`; `pnpm test` checks
-the canvas geometry.
+the canvas geometry and flipbook caching.
 
 The viewer resolves the five presets with the backend, using epoch 2026.0 for
 its proper-motion model. RA/Dec are ICRS degrees; FOV is in arcseconds (greater
 than 18″, at most 3600″). Edit the coordinate or FOV inputs and press Enter or
-the arrow to load. Detector selection loads one of D1–D6 immediately.
+the arrow to load. Each detector loads on its first visit. Switching back reuses
+its response and decoded images immediately, without another API request. The
+in-memory cache keeps the 12 most recently used flipbooks, keyed by target or
+coordinates, detector, and FOV, until the page is reloaded. Pending loads are
+shared across switches; “Try again” or submitting the same field refreshes the
+selected detector.
 
 Drag to pan, scroll or pinch to zoom, double-click or press `0` to fit/recenter.
 Space toggles playback, left/right arrows step frames. The timeline scrubs all

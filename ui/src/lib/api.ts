@@ -51,11 +51,13 @@ export async function getApi<T>(path: string, params: Record<string, string | nu
 }
 
 export async function preloadFrames(frames: SkyFrame[], signal: AbortSignal) {
-  await Promise.all(frames.map(async (frame) => {
+  return Promise.all(frames.map(async (frame) => {
     if (signal.aborted) throw new DOMException('Aborted', 'AbortError')
     const image = new Image()
     image.src = frame.image
     await image.decode()
+    if (signal.aborted) throw new DOMException('Aborted', 'AbortError')
+    return image
   }))
 }
 
