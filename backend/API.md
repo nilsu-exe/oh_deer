@@ -21,7 +21,7 @@ Every endpoint that takes a position accepts **either** `ra` + `dec` (ICRS degre
 | `include_wavelength` | true | Set false to skip wavelength calculation and omit wavelength fields |
 | `include_image` | true | Set false to omit rendered PNGs from each frame (useful for wavelength-only responses) |
 
-Requests use IRSA spatial cutouts rather than transferring full S3 FITS files. Image-only and wavelength requests use separate cutout cache entries. The cutout service returns a smaller multi-extension FITS; `include_wavelength=false` skips wavelength calculation, and `include_image=false` omits rendered PNGs from the response.
+Image requests range-read only the required pixel sections from S3, with an IRSA cutout fallback. Wavelength values are read separately from FITS headers and WCS-WAVE without reading the full image HDU. These paths avoid downloading full S3 FITS objects; image and wavelength modes have separate cache entries. `include_wavelength=false` skips wavelength calculation, and `include_image=false` omits rendered PNGs from the response.
 
 Response (abbreviated):
 

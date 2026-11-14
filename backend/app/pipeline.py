@@ -83,12 +83,18 @@ def build_frames(ra: float, dec: float, fov: float, det: int, *,
     images = irsa_client.query_images(ra, dec, det)
     n_found = len(images)
     images = _subsample(images, max_frames)
-    # IRSA extracts a spatially limited MEF on the server. Direct S3 access
-    # would transfer the entire detector exposure even for a small FOV.
-    fetched = irsa_client.fetch_all(
-        images, ra, dec, fov * config.CUTOUT_PAD, prefer_s3=False,
-        cache_variant="wavelength" if include_wavelength else "image",
-    )
+    if not include_image:
+        # Read only S3 headers and WCS-WAVE; do not transfer the IMAGE HDU.
+        fetched = irsa_client.fetch_wavelengths(images, ra, dec)
+    else:
+        # Range-read only the needed S3 pixels; wavelength values are read
+        # separately from the remote WCS-WAVE table when requested.
+        fetched = irsa_client.fetch_all(
+            images, ra, dec, fov * config.CUTOUT_PAD,
+            prefer_s3=True,
+            cache_variant="wavelength" if include_wavelength else "image",
+            read_wavelength=include_wavelength,
+        )
 
     grid_wcs, shape = processing.make_grid(ra, dec, fov, scale)
     frames: List[Dict[str, Any]] = []
@@ -98,20 +104,27 @@ def build_frames(ra: float, dec: float, fov: float, det: int, *,
             failed += 1
             continue
         try:
-            if include_image:
+            if not include_image:
+                wl, bw, version = content
+                flag_frac = None
+            else:
                 c = processing.parse_cutout(
-                    content, meta, include_wavelength=include_wavelength
+                    content, meta, include_wavelength=False
                 )
                 img, flag_frac = processing.clean_image(c, sky=sky, mask=mask)
                 arr = processing.reproject_to_grid(img, c.wcs, grid_wcs, shape)
                 version = c.version
-            else:
-                wl, bw, version = processing.wavelength_at(content, ra, dec)
-                flag_frac = None
             if include_wavelength and include_image:
-                x, y = processing.pixel_of(c, ra, dec)
-                wl = processing.sample(c.wave, x, y)
-                bw = processing.sample(c.bandwidth, x, y)
+                if "_wavelength" in meta:
+                    wl, bw, _ = meta["_wavelength"] or (None, None, "")
+                else:
+                    # Test doubles and legacy fetchers may return full IRSA MEFs.
+                    wave_cutout = processing.parse_cutout(
+                        content, meta, include_wavelength=True
+                    )
+                    x, y = processing.pixel_of(wave_cutout, ra, dec)
+                    wl = processing.sample(wave_cutout.wave, x, y)
+                    bw = processing.sample(wave_cutout.bandwidth, x, y)
             elif not include_wavelength:
                 wl = bw = None
         except Exception as exc:

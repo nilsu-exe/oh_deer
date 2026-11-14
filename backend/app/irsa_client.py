@@ -17,8 +17,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import requests
 
-from . import config
-from . import cache
+from . import cache, config, processing
 
 log = logging.getLogger(__name__)
 
@@ -127,22 +126,26 @@ def _download(url: str) -> Optional[bytes]:
 def fetch_cutout(image: Dict[str, str], ra: float, dec: float,
                  size_deg: float, prefer_s3: bool = False,
                  cache_variant: str = "default") -> Optional[bytes]:
-    """Fetch an S3 image or a spatially extracted IRSA cutout."""
+    """Range-extract an S3 image cutout, falling back to IRSA's cutout service."""
     base_url = image.get("irsa")
     s3_url = image.get("s3")
     url = cutout_url(base_url, ra, dec, size_deg)
     cutout_key = "cut_" + cache.key_hash(url, cache_variant)
 
     if prefer_s3 and s3_url:
-        s3_key = "s3_" + cache.key_hash(s3_url)
-        data = cache.get_bytes(s3_key)
+        s3_cutout_key = "s3cut_" + cache.key_hash(s3_url, ra, dec, size_deg, cache_variant)
+        data = cache.get_bytes(s3_cutout_key)
         if data is not None:
             return data
-        data = _download(s3_url)
+        try:
+            data = processing.extract_remote_s3_cutout(s3_url, ra, dec, size_deg)
+        except Exception as exc:
+            log.warning("S3 range cutout failed for %s: %s", s3_url, exc)
+            data = None
         if data is not None:
-            cache.set_bytes(s3_key, data)
+            cache.set_bytes(s3_cutout_key, data)
             return data
-        log.info("S3 download failed; falling back to IRSA cutout for %s", base_url)
+        log.info("S3 range extraction failed; falling back to IRSA cutout for %s", base_url)
 
     data = cache.get_bytes(cutout_key)
     if data is not None:
@@ -155,7 +158,7 @@ def fetch_cutout(image: Dict[str, str], ra: float, dec: float,
 
 def fetch_all(images: List[Dict[str, Any]], ra: float, dec: float,
               size_deg: float, prefer_s3: bool = False,
-              cache_variant: str = "default"
+              cache_variant: str = "default", read_wavelength: bool = False
               ) -> List[Tuple[Dict[str, Any], Optional[bytes]]]:
     """Fetch cutouts for every image in parallel. Order is preserved.
 
@@ -163,10 +166,63 @@ def fetch_all(images: List[Dict[str, Any]], ra: float, dec: float,
     "N of M frames loaded" instead of failing the whole request.
     """
     def one(meta: Dict[str, Any]):
-        return meta, fetch_cutout(
+        data = fetch_cutout(
             meta.get("image"), ra, dec, size_deg, prefer_s3=prefer_s3,
             cache_variant=cache_variant,
         )
+        if read_wavelength:
+            meta = {**meta, "_wavelength": _fetch_wavelength(meta, ra, dec)}
+        return meta, data
+
+    with ThreadPoolExecutor(max_workers=config.MAX_PARALLEL_DOWNLOADS) as pool:
+        return list(pool.map(one, images))
+
+
+def _fetch_wavelength(meta: Dict[str, Any], ra: float, dec: float
+                      ) -> Optional[Tuple[Optional[float], Optional[float], str]]:
+    image = meta.get("image") or {}
+    s3_url = image.get("s3")
+    key = "wave_" + cache.key_hash(s3_url, round(ra, 7), round(dec, 7))
+    cached = cache.get_json(key)
+    if cached is not None:
+        return (cached.get("wavelength_um"), cached.get("bandwidth_um"),
+                cached.get("version", ""))
+
+    result = None
+    if s3_url:
+        try:
+            result = processing.wavelength_at_remote_s3(s3_url, ra, dec)
+        except Exception as exc:
+            log.warning("S3 wavelength range read failed for %s: %s", s3_url, exc)
+
+    if result is None:
+        base_url = image.get("irsa")
+        if not base_url:
+            return None
+        cutout = _download(cutout_url(base_url, ra, dec, 0.01))
+        if cutout is None:
+            return None
+        try:
+            result = processing.wavelength_at(cutout, ra, dec)
+        except Exception as exc:
+            log.warning("IRSA wavelength cutout failed for %s: %s", base_url, exc)
+            return None
+
+    wavelength_um, bandwidth_um, version = result
+    cache.set_json(key, {
+        "wavelength_um": wavelength_um,
+        "bandwidth_um": bandwidth_um,
+        "version": version,
+    })
+    return result
+
+
+def fetch_wavelengths(images: List[Dict[str, Any]], ra: float, dec: float
+                      ) -> List[Tuple[Dict[str, Any], Optional[Tuple[Optional[float],
+                                                                   Optional[float], str]]]]:
+    """Read only S3 FITS headers and WCS-WAVE data, with an IRSA cutout fallback."""
+    def one(meta: Dict[str, Any]):
+        return meta, _fetch_wavelength(meta, ra, dec)
 
     with ThreadPoolExecutor(max_workers=config.MAX_PARALLEL_DOWNLOADS) as pool:
         return list(pool.map(one, images))

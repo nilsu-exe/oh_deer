@@ -1,6 +1,7 @@
 fastapi>=0.110
 uvicorn[standard]>=0.29
 astropy
+fsspec[http]>=2024.2
 astroquery>=0.4.7
 reproject>=0.13
 numpy

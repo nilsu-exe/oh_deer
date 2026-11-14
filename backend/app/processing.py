@@ -12,6 +12,7 @@ import numpy as np
 from astropy import units as u
 from astropy.coordinates import SkyCoord
 from astropy.io import fits
+from astropy.nddata import Cutout2D
 from astropy.wcs import WCS
 from astropy.wcs.utils import proj_plane_pixel_area
 from PIL import Image
@@ -96,6 +97,81 @@ def wavelength_at(content: bytes, ra: float, dec: float
             except Exception as exc:  # pragma: no cover - depends on real files
                 log.warning("could not read wavelength at position: %s", exc)
                 return None, None, version
+
+
+def wavelength_at_remote_s3(url: str, ra: float, dec: float
+                            ) -> Tuple[Optional[float], Optional[float], str]:
+    """Range-read only FITS headers and WCS-WAVE data from a remote S3 MEF."""
+    with fits.open(
+        url,
+        use_fsspec=True,
+        fsspec_kwargs={"block_size": 256 * 1024},
+        lazy_load_hdus=True,
+        memmap=False,
+    ) as hdul:
+        hdr = hdul["IMAGE"].header
+        x, y = WCS(hdr).world_to_pixel(SkyCoord(ra * u.deg, dec * u.deg))
+        version = str(hdul[0].header.get("VERSION", ""))
+        if not (0 <= x < hdr["NAXIS1"] and 0 <= y < hdr["NAXIS2"]):
+            return None, None, version
+        spec = WCS(hdr, fobj=hdul, key="W")
+        spec.sip = None
+        wave, bandwidth = spec.pixel_to_world(x, y)
+        return (
+            float(wave.to(u.micrometer).value),
+            float(bandwidth.to(u.micrometer).value),
+            version,
+        )
+
+
+def extract_remote_s3_cutout(url: str, ra: float, dec: float,
+                             size_deg: float) -> bytes:
+    """Range-read only the spatial cutout pixels needed from a remote FITS MEF."""
+    with fits.open(
+        url,
+        use_fsspec=True,
+        fsspec_kwargs={"block_size": 256 * 1024},
+        lazy_load_hdus=True,
+        memmap=False,
+    ) as remote:
+        image_hdu = remote["IMAGE"]
+        wcs = WCS(image_hdu.header)
+        position = SkyCoord(ra * u.deg, dec * u.deg)
+        shape = image_hdu.shape
+        probe = Cutout2D(
+            np.empty(shape, dtype=np.uint8),
+            position,
+            (size_deg * u.deg, size_deg * u.deg),
+            wcs=wcs,
+            mode="trim",
+        )
+        source_slices = probe.slices_original
+        primary = fits.PrimaryHDU(header=remote[0].header.copy())
+        cropped_hdus = [primary]
+
+        for extname in ("IMAGE", "FLAGS", "VARIANCE", "ZODI"):
+            source_hdu = remote[extname]
+            pixels = np.array(source_hdu.section[source_slices], copy=True)
+            header = source_hdu.header.copy()
+            for key in list(header):
+                if (
+                    key in {"XTENSION", "BITPIX", "NAXIS", "PCOUNT", "GCOUNT",
+                            "EXTNAME", "EXTVER", "BSCALE", "BZERO", "CHECKSUM",
+                            "DATASUM", "THEAP"}
+                    or key.startswith("NAXIS")
+                    or key.startswith((
+                        "ZIMAGE", "ZBITPIX", "ZNAXIS", "ZTILE", "ZCMPTYPE",
+                        "ZNAME", "ZVAL", "ZQUANTIZ", "ZDITHER",
+                    ))
+                ):
+                    del header[key]
+            out_hdu = fits.ImageHDU(data=pixels, header=header, name=extname)
+            out_hdu.header.update(probe.wcs.to_header(relax=True))
+            cropped_hdus.append(out_hdu)
+
+    buffer = io.BytesIO()
+    fits.HDUList(cropped_hdus).writeto(buffer)
+    return buffer.getvalue()
 
 
 # ---------------------------------------------------------------- masking ---
