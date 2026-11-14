@@ -19,8 +19,7 @@ def _fake_wavelengths(monkeypatch):
 
 
 def _metas(n, det=2, dt_days=1.0, t0=60800.0):
-    return [{"image": {"s3": f"https://example.invalid/s3/img{i}.fits",
-                       "irsa": f"https://example.invalid/img{i}.fits"},
+    return [{"base_url": f"https://example.invalid/img{i}.fits",
              "mjd": t0 + i * dt_days,
              "det": det, "bandpass": f"SPHEREx-D{det}"} for i in range(n)]
 
@@ -169,8 +168,7 @@ def test_spectrum_endpoint_sorted_by_wavelength(monkeypatch):
     for i in range(6):
         ra0, dec0 = RA0, DEC0 + (i - 3) * 3 * 6.15 / 3600.0
         contents.append(make_mef(RA0, DEC0, ra0, dec0, rot_deg=7.0 * i, n=40))
-        metas.append({"image": {"s3": f"https://example.invalid/s3/{i}.fits",
-                                "irsa": f"https://example.invalid/{i}.fits"},
+        metas.append({"base_url": f"https://example.invalid/{i}.fits",
                       "mjd": 60800.0 + i,
                       "det": 1 + i, "bandpass": f"SPHEREx-D{1 + i}"})
     fetch_modes = _patch_irsa(monkeypatch, metas, contents)

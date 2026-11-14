@@ -142,24 +142,8 @@ def test_missing_mirror_object_falls_back_immediately(monkeypatch, tmp_path, kin
     assert len(attempts) == 1
 
 
-@pytest.mark.parametrize("aperture_only", [False, True])
-def test_full_s3_cache_from_spectral_branch_is_reused_without_downloads(monkeypatch, tmp_path, aperture_only):
-    monkeypatch.setattr(config, "CACHE_DIR", tmp_path)
-    s3_url = s3_cutouts.mirror_url(BASE)
-    key = "s3_" + irsa_client.cache.key_hash(s3_url)
-    irsa_client.cache.set_bytes(key, b"full S3 FITS")
-    monkeypatch.setattr(irsa_client, "_download", lambda *a: pytest.fail("HTTP download used"))
-    monkeypatch.setattr(s3_cutouts, "read_cutout", lambda *a: pytest.fail("S3 download used"))
-    fetch = irsa_client.fetch_aperture_cutout if aperture_only else irsa_client.fetch_cutout
-    assert fetch(BASE, RA, DEC, 0.04) == b"full S3 FITS"
-    assert irsa_client.cache.get_bytes(key) == b"full S3 FITS"
-
-
-@pytest.mark.parametrize("source_mapping", [False, True])
-def test_batch_selects_aperture_flow_and_retains_order_and_failures(monkeypatch, source_mapping):
+def test_batch_selects_aperture_flow_and_retains_order_and_failures(monkeypatch):
     metas = [{"base_url": "first"}, {"base_url": "second"}]
-    if source_mapping:
-        metas = [{"image": {"irsa": m["base_url"]}} for m in metas]
     monkeypatch.setattr(irsa_client, "fetch_cutout", lambda *args: pytest.fail("full download used"))
     monkeypatch.setattr(irsa_client, "fetch_aperture_cutout",
                         lambda url, *args: b"partial" if url == "first" else None)

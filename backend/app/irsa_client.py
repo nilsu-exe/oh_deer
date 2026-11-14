@@ -36,11 +36,6 @@ class MirrorUnavailable(DiscoveryError):
     """Local-only discovery was requested without a complete matching snapshot."""
 
 
-def _image_url(meta: Dict[str, Any]) -> str:
-    """Accept discovery metadata cached by either branch without discarding it."""
-    return meta.get("base_url") or meta["image"]["irsa"]
-
-
 def _det_from_bandpass(name: str) -> Optional[int]:
     # "SPHEREx-D2" -> 2
     try:
@@ -73,7 +68,7 @@ def query_images(ra: float, dec: float, det: Optional[int] = None) -> List[Dict[
     cached = cache.get_json(key, ttl=config.TAP_TTL_SECONDS)
     if cached is not None:
         log.info("TAP cache hit key=%s images=%d", key, len(cached))
-        return [dict(meta, base_url=_image_url(meta)) for meta in cached]
+        return cached
 
     log.info("TAP cache miss key=%s ra=%.6f dec=%.6f detector=%s",
              key, ra, dec, det or "all")
@@ -132,9 +127,9 @@ def query_selected_images(ra: float, dec: float, dets: Optional[List[int]] = Non
         return query_images(ra, dec)
     detectors = sorted(set(dets))
     groups = [query_images(ra, dec, det) for det in detectors]
-    images = {_image_url(m): m for det, group in zip(detectors, groups)
+    images = {m["base_url"]: m for det, group in zip(detectors, groups)
               for m in group if m.get("det") == det}
-    images = sorted(images.values(), key=lambda m: (m["mjd"], _image_url(m)))
+    images = sorted(images.values(), key=lambda m: (m["mjd"], m["base_url"]))
     infos = [g.discovery for g in groups if getattr(g, "discovery", None)]
     if infos:
         images = discovery_mirror.MirrorImages(images, [
@@ -192,11 +187,6 @@ def fetch_cutout(base_url: str, ra: float, dec: float, size_deg: float) -> Optio
     if data is not None:
         log.debug("cutout cache hit bytes=%d url=%s", len(data), url)
         return data
-    s3_url = s3_cutouts.mirror_url(base_url)
-    if s3_url is not None:
-        data = cache.get_bytes("s3_" + cache.key_hash(s3_url))
-        if data is not None:
-            return data
     log.debug("cutout cache miss url=%s", url)
     data = _download(url)
     if data is not None:
@@ -209,16 +199,13 @@ def fetch_aperture_cutout(base_url: str, ra: float, dec: float,
     """Prefer cached data, then S3 partial reads; fall back to the IRSA service."""
     url = cutout_url(base_url, ra, dec, size_deg)
     key = "aperture_s3_v1_" + cache.key_hash(url)
-    s3_url = s3_cutouts.mirror_url(base_url)
-    cached_keys = [key, "cut_" + cache.key_hash(url)]
-    if s3_url is not None:
-        cached_keys.append("s3_" + cache.key_hash(s3_url))
-    for cached_key in cached_keys:
+    for cached_key in (key, "cut_" + cache.key_hash(url)):
         data = cache.get_bytes(cached_key)
         if data is not None:
             log.debug("aperture cache hit bytes=%d key=%s", len(data), cached_key)
             return data
 
+    s3_url = s3_cutouts.mirror_url(base_url)
     if s3_url is not None:
         started = time.perf_counter()
         for attempt in range(config.RETRIES):
@@ -260,7 +247,7 @@ def fetch_all(images: List[Dict[str, Any]], ra: float, dec: float,
     """
     def one(meta: Dict[str, Any]):
         fetch = fetch_aperture_cutout if aperture_only else fetch_cutout
-        return meta, fetch(_image_url(meta), ra, dec, size_deg)
+        return meta, fetch(meta["base_url"], ra, dec, size_deg)
 
     total = len(images)
     started = time.perf_counter()

@@ -125,8 +125,7 @@ def replace_snapshot(rows, *, det=None, ra=None, dec=None, updated=None, source=
         db.execute("DELETE FROM images WHERE snapshot_id=?", (snapshot_id,))
         count = 0
         for row in rows:
-            url = str(row.get("base_url") or row["image"]["irsa"])
-            mjd, detector = float(row["mjd"]), int(row["det"])
+            url, mjd, detector = str(row["base_url"]), float(row["mjd"]), int(row["det"])
             if not url.startswith(config.IRSA_BASE + "/ibe/data/spherex/") or not math.isfinite(mjd):
                 raise ValueError("Invalid image URL or MJD")
             if detector not in range(1, 7) or (det and detector != det):

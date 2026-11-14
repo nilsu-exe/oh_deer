@@ -82,13 +82,9 @@ def test_atomic_refresh_readers_keep_old_snapshot_until_commit_and_failure_rolls
     assert mirror.status()["snapshots"][0]["updated"] == 20
 
 
-@pytest.mark.parametrize("source_mapping", [False, True])
-def test_newest_snapshot_wins_and_seeding_preserves_original_age(tmp_path, source_mapping):
+def test_newest_snapshot_wins_and_seeding_preserves_original_age(tmp_path):
     old = tmp_path / "tap_0.0_0.0_2.json"
-    row = image("old")
-    if source_mapping:
-        row["image"] = {"irsa": row.pop("base_url"), "s3": "https://s3.invalid/old.fits"}
-    old.write_text(json.dumps([row]))
+    old.write_text(json.dumps([image("old")]))
     os.utime(old, (1, 1))
     assert mirror.seed_cache(tmp_path) == {"snapshots_imported": 1, "images_imported": 1}
     assert mirror.status()["snapshots"][0]["updated"] == 1
@@ -96,22 +92,6 @@ def test_newest_snapshot_wins_and_seeding_preserves_original_age(tmp_path, sourc
     result = mirror.query_images(0, 0, 2)
     assert result[0]["base_url"].endswith("new.fits")
     assert not result.discovery["stale"]
-
-
-@pytest.mark.parametrize("source_mapping", [False, True])
-def test_saved_discovery_formats_are_reused_without_network_or_cache_rewrite(monkeypatch, source_mapping):
-    monkeypatch.setattr(config, "DISCOVERY_MODE", "tap")
-    row = image("cached")
-    if source_mapping:
-        row["image"] = {"irsa": row.pop("base_url"), "s3": "https://s3.invalid/cached.fits"}
-    key = f"tap_{round(RA, 4)}_{round(DEC, 4)}_2"
-    irsa_client.cache.set_json(key, [row])
-    path = config.CACHE_DIR / f"{key}.json"
-    before = path.read_bytes(), path.stat().st_mtime_ns
-    monkeypatch.setattr(tap_metadata, "query_table", lambda *a, **kw: pytest.fail("TAP contacted"))
-    result = irsa_client.query_images(RA, DEC, 2)
-    assert result[0]["base_url"].endswith("cached.fits")
-    assert (path.read_bytes(), path.stat().st_mtime_ns) == before
 
 
 def test_point_precision_wraps_zero_ra():

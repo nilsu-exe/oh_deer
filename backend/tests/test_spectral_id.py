@@ -157,7 +157,7 @@ def test_analyze_and_spectrum_handlers(monkeypatch):
 
     # Also verify pipeline.build_spectrum attaches `analysis` and respects `z`
     ra0, dec0 = 133.795, -7.245
-    meta = {"image": {"s3": "https://example.invalid/s3/0.fits", "irsa": "https://example.invalid/0.fits"},
+    meta = {"base_url": "https://example.invalid/0.fits",
             "mjd": 60800.0, "det": 2, "bandpass": "SPHEREx-D2"}
     content = make_mef(ra0, dec0, ra0, dec0, rot_deg=0.0, n=40)
     monkeypatch.setattr(pipeline.irsa_client, "query_images", lambda ra, dec, det=None: [meta])
@@ -210,7 +210,7 @@ def test_coadds_epoch_diff_and_candidate_detection(monkeypatch):
     metas, contents = [], []
     for i, (mjd, dec_s) in enumerate(zip(mjds, decs)):
         metas.append({
-            "image": {"s3": f"https://example.invalid/s3/{i}.fits", "irsa": f"https://example.invalid/{i}.fits"},
+            "base_url": f"https://example.invalid/{i}.fits",
             "mjd": mjd, "det": 2, "bandpass": "SPHEREx-D2",
         })
         contents.append(make_mef(ra0, dec_s, ra0, dec0, rot_deg=10.0 * i))
