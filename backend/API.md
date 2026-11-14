@@ -18,6 +18,10 @@ Every endpoint that takes a position accepts **either** `ra` + `dec` (ICRS degre
 | `max_frames` | 200 | Evenly thin the frame list (0 = all) |
 | `stretch` | `auto` | `asinh`, `linear`; `auto` = linear when subtracting |
 | `scale` | 6.15 | Output pixel scale, arcsec/pixel |
+| `include_wavelength` | true | Set false to skip wavelength calculation and omit wavelength fields |
+| `include_image` | true | Set false to omit rendered PNGs from each frame (useful for wavelength-only responses) |
+
+Requests use IRSA spatial cutouts rather than transferring full S3 FITS files. Image-only and wavelength requests use separate cutout cache entries. The cutout service returns a smaller multi-extension FITS; `include_wavelength=false` skips wavelength calculation, and `include_image=false` omits rendered PNGs from the response.
 
 Response (abbreviated):
 

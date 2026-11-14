@@ -28,7 +28,7 @@ def _metas(n, det=2, dt_days=1.0, t0=60800.0):
 def _patch_irsa(monkeypatch, metas, contents, fail_index=None):
     monkeypatch.setattr(irsa_client, "query_images", lambda ra, dec, det=None: metas)
 
-    def fake_fetch_all(images, ra, dec, size):
+    def fake_fetch_all(images, ra, dec, size, **kwargs):
         out = []
         for i, m in enumerate(images):
             out.append((m, None if i == fail_index else contents[i]))

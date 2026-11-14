@@ -13,9 +13,9 @@ from fastapi.staticfiles import StaticFiles
 if __package__ in (None, ""):
     # Support python app/main.py as well as importing app.main.
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-    from app import config, pipeline, processing, targets
+    from app import config, irsa_client, pipeline, processing, targets
 else:
-    from . import config, pipeline, processing, targets
+    from . import config, irsa_client, pipeline, processing, targets
 
 logging.basicConfig(level=logging.INFO)
 
@@ -83,11 +83,24 @@ def frames(
     scale: float = Query(config.PIXEL_SCALE_ARCSEC, ge=1.0, le=30.0),
     max_frames: int = Query(200, ge=0, le=2000),
     stretch: Literal["auto", "linear", "asinh"] = "auto",
+    include_wavelength: bool = Query(
+        True, description="Compute wavelength metadata for each image frame"
+    ),
+    include_image: bool = Query(True, description="Include rendered image data in each frame"),
 ):
+    if not include_image and not include_wavelength:
+        raise HTTPException(
+            status_code=422, detail="Request image data, wavelength data, or both."
+        )
     ra, dec, info = _center(ra, dec, target, epoch)
-    result = pipeline.build_frames(ra, dec, fov, det, bin_days=bin_days, sky=sky,
-                                   subtract=subtract, mask=mask, scale=scale,
-                                   max_frames=max_frames, stretch=stretch)
+    try:
+        result = pipeline.build_frames(ra, dec, fov, det, bin_days=bin_days, sky=sky,
+                                       subtract=subtract, mask=mask, scale=scale,
+                                       max_frames=max_frames, stretch=stretch,
+                                       include_wavelength=include_wavelength,
+                                       include_image=include_image)
+    except irsa_client.IRSAQueryError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
     result["resolved"] = info
     return result
 
@@ -110,8 +123,11 @@ def spectrum(
             det_list = [int(d) for d in dets.split(",")]
         except ValueError:
             raise HTTPException(status_code=422, detail="dets must be comma-separated integers")
-    result = pipeline.build_spectrum(ra, dec, size=size, aperture_px=aperture_px,
-                                     max_frames=max_frames, dets=det_list)
+    try:
+        result = pipeline.build_spectrum(ra, dec, size=size, aperture_px=aperture_px,
+                                         max_frames=max_frames, dets=det_list)
+    except irsa_client.IRSAQueryError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
     result["resolved"] = info
     return result
 

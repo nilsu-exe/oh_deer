@@ -55,9 +55,15 @@ def _bin_frames(frames: List[Dict[str, Any]], bin_days: float) -> List[Dict[str,
             "wavelength_range_um": [float(min(waves)), float(max(waves))] if waves else [None, None],
             "bandwidth_um": None,
             "version": ",".join(sorted({f.get("version") for f in g if f.get("version")})),
-            "flag_fraction": float(np.mean([f.get("flag_fraction") for f in g])),
+            "flag_fraction": (
+                float(np.mean([f.get("flag_fraction") for f in g]))
+                if "flag_fraction" in g[0] else None
+            ),
             "n_stacked": len(g),
-            "array": _nanmean(np.stack([f.get("array") for f in g])),
+            "array": (
+                _nanmean(np.stack([f.get("array") for f in g]))
+                if "array" in g[0] else None
+            ),
         })
     return out
 
@@ -65,7 +71,9 @@ def _bin_frames(frames: List[Dict[str, Any]], bin_days: float) -> List[Dict[str,
 def build_frames(ra: float, dec: float, fov: float, det: int, *,
                  bin_days: float = 0.0, sky: str = "median", subtract: str = "none",
                  mask: bool = True, scale: float = config.PIXEL_SCALE_ARCSEC,
-                 max_frames: int = 200, stretch: str = "auto") -> Dict[str, Any]:
+                 max_frames: int = 200, stretch: str = "auto",
+                 include_wavelength: bool = True,
+                 include_image: bool = True) -> Dict[str, Any]:
     """Frames for one detector, reprojected onto a common north-up grid.
 
     Frames are per detector on purpose: each detector covers a different
@@ -75,7 +83,12 @@ def build_frames(ra: float, dec: float, fov: float, det: int, *,
     images = irsa_client.query_images(ra, dec, det)
     n_found = len(images)
     images = _subsample(images, max_frames)
-    fetched = irsa_client.fetch_all(images, ra, dec, fov * config.CUTOUT_PAD)
+    # IRSA extracts a spatially limited MEF on the server. Direct S3 access
+    # would transfer the entire detector exposure even for a small FOV.
+    fetched = irsa_client.fetch_all(
+        images, ra, dec, fov * config.CUTOUT_PAD, prefer_s3=False,
+        cache_variant="wavelength" if include_wavelength else "image",
+    )
 
     grid_wcs, shape = processing.make_grid(ra, dec, fov, scale)
     frames: List[Dict[str, Any]] = []
@@ -85,28 +98,41 @@ def build_frames(ra: float, dec: float, fov: float, det: int, *,
             failed += 1
             continue
         try:
-            c = processing.parse_cutout(content, meta)
-            img, flag_frac = processing.clean_image(c, sky=sky, mask=mask)
-            arr = processing.reproject_to_grid(img, c.wcs, grid_wcs, shape)
-            x, y = processing.pixel_of(c, ra, dec)
-            wl = processing.sample(c.wave, x, y)
-            bw = processing.sample(c.bandwidth, x, y)
+            if include_image:
+                c = processing.parse_cutout(
+                    content, meta, include_wavelength=include_wavelength
+                )
+                img, flag_frac = processing.clean_image(c, sky=sky, mask=mask)
+                arr = processing.reproject_to_grid(img, c.wcs, grid_wcs, shape)
+                version = c.version
+            else:
+                wl, bw, version = processing.wavelength_at(content, ra, dec)
+                flag_frac = None
+            if include_wavelength and include_image:
+                x, y = processing.pixel_of(c, ra, dec)
+                wl = processing.sample(c.wave, x, y)
+                bw = processing.sample(c.bandwidth, x, y)
+            elif not include_wavelength:
+                wl = bw = None
         except Exception as exc:
             source = (meta.get("image") or {}).get("irsa")
             log.warning("frame failed (%s): %s", source, exc)
             failed += 1
             continue
-        frames.append({
-            "mjd": meta.get("mjd"), "det": meta.get("det"),
-            "wavelength_um": None if not np.isfinite(wl) else wl,
-            "bandwidth_um": None if not np.isfinite(bw) else bw,
-            "version": c.version, "flag_fraction": flag_frac, "array": arr,
-        })
+        frame = {"mjd": meta.get("mjd"), "det": meta.get("det"), "version": version}
+        if include_image:
+            frame.update({"flag_fraction": flag_frac, "array": arr})
+        if include_wavelength:
+            frame.update({
+                "wavelength_um": None if wl is None or not np.isfinite(wl) else wl,
+                "bandwidth_um": None if bw is None or not np.isfinite(bw) else bw,
+            })
+        frames.append(frame)
 
     frames = _bin_frames(frames, bin_days)
 
     signed = subtract == "median"
-    if subtract == "median" and len(frames) > 1:
+    if include_image and subtract == "median" and len(frames) > 1:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             med = np.nanmedian(np.stack([f.get("array") for f in frames]), axis=0)
@@ -115,28 +141,40 @@ def build_frames(ra: float, dec: float, fov: float, det: int, *,
 
     if stretch == "auto":
         stretch = "linear" if signed else "asinh"
-    pngs = processing.encode_frames([f.get("array") for f in frames], stretch=stretch)
+    pngs = (
+        processing.encode_frames([f.get("array") for f in frames], stretch=stretch)
+        if include_image else []
+    )
 
     out_frames = []
-    for i, (f, png) in enumerate(zip(frames, pngs)):
-        out_frames.append({
+    for i, f in enumerate(frames):
+        out_frame = {
             "index": i,
             "mjd": f.get("mjd"),
             "date": _iso(f.get("mjd")),
             "det": f.get("det"),
-            "wavelength_um": f.get("wavelength_um"),
-            "wavelength_range_um": f.get("wavelength_range_um"),
-            "bandwidth_um": f.get("bandwidth_um"),
             "n_stacked": f.get("n_stacked"),
             "version": f.get("version"),
-            "flag_fraction": round(f.get("flag_fraction"), 4),
-            "image": png,
-        })
+        }
+        if include_image:
+            png = pngs[i]
+            out_frame.update({
+                "flag_fraction": round(f.get("flag_fraction"), 4),
+                "image": png,
+            })
+        if include_wavelength:
+            out_frame.update({
+                "wavelength_um": f.get("wavelength_um"),
+                "wavelength_range_um": f.get("wavelength_range_um"),
+                "bandwidth_um": f.get("bandwidth_um"),
+            })
+        out_frames.append(out_frame)
 
     n = shape[0]
     return {
         "query": {"ra": ra, "dec": dec, "fov_deg": fov, "det": det, "bin_days": bin_days,
-                  "sky": sky, "subtract": subtract, "mask": mask, "stretch": stretch},
+                  "sky": sky, "subtract": subtract, "mask": mask, "stretch": stretch,
+                  "include_wavelength": include_wavelength, "include_image": include_image},
         "grid": {"n_pixels": n, "pixel_scale_arcsec": scale,
                  "fov_deg": n * scale / 3600.0,
                  "center": {"ra": ra, "dec": dec},
@@ -160,7 +198,9 @@ def build_spectrum(ra: float, dec: float, *, size: float = 0.04, aperture_px: fl
         images = [m for m in images if m.get("det") in dets]
     n_found = len(images)
     images = _subsample(images, max_frames)
-    fetched = irsa_client.fetch_all(images, ra, dec, size)
+    fetched = irsa_client.fetch_all(
+        images, ra, dec, size, prefer_s3=False, cache_variant="wavelength"
+    )
 
     points, failed = [], 0
     for meta, content in fetched:

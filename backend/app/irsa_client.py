@@ -28,6 +28,10 @@ _SPHEREX_S3_BASE = "https://nasa-irsa-spherex.s3.us-east-1.amazonaws.com"
 _download_slots = threading.BoundedSemaphore(config.MAX_PARALLEL_DOWNLOADS)
 
 
+class IRSAQueryError(RuntimeError):
+    """IRSA TAP could not complete a query after retries."""
+
+
 def _det_from_bandpass(name: str) -> Optional[int]:
     # "SPHEREx-D2" -> 2
     try:
@@ -62,17 +66,31 @@ def query_images(ra: float, dec: float, det: Optional[int] = None) -> List[Dict[
         ORDER BY p.time_bounds_lower
     """
     t0 = time.time()
-    table = Irsa.query_tap(adql).to_table()
+    attempts = max(config.RETRIES, 1)
+    for attempt in range(attempts):
+        try:
+            table = Irsa.query_tap(adql).to_table()
+            break
+        except Exception as exc:
+            log.warning(
+                "IRSA TAP query failed (attempt %d/%d): %s",
+                attempt + 1, attempts, exc,
+            )
+            if attempt + 1 == attempts:
+                raise IRSAQueryError(
+                    f"IRSA TAP query failed after {attempts} attempts"
+                ) from exc
+            time.sleep(config.RETRY_BACKOFF * (attempt + 1))
     log.info("TAP query returned %d rows in %.1fs", len(table), time.time() - t0)
 
     out: List[Dict[str, Any]] = []
     for row in table:
         try:
-            mjd = float(row.get("mjd"))
+            mjd = float(row["mjd"])
         except (TypeError, ValueError):
             continue
-        uri = str(row.get("uri")).lstrip("/")
-        bandpass = str(row.get("bandpass"))
+        uri = str(row["uri"]).lstrip("/")
+        bandpass = str(row["bandpass"])
         s3_path = uri.removeprefix(_IRSA_SPHEREX_PATH)
         out.append({
             "image": {
@@ -83,7 +101,7 @@ def query_images(ra: float, dec: float, det: Optional[int] = None) -> List[Dict[
             "det": _det_from_bandpass(bandpass),
             "bandpass": bandpass,
         })
-    out.sort(key=lambda r: r.get("mjd"))
+    out.sort(key=lambda r: r["mjd"])
     cache.set_json(key, out)
     return out
 
@@ -107,17 +125,15 @@ def _download(url: str) -> Optional[bytes]:
 
 
 def fetch_cutout(image: Dict[str, str], ra: float, dec: float,
-                 size_deg: float) -> Optional[bytes]:
-    """Try the S3 image first, then an IRSA cutout; return raw FITS bytes."""
+                 size_deg: float, prefer_s3: bool = False,
+                 cache_variant: str = "default") -> Optional[bytes]:
+    """Fetch an S3 image or a spatially extracted IRSA cutout."""
     base_url = image.get("irsa")
     s3_url = image.get("s3")
     url = cutout_url(base_url, ra, dec, size_deg)
-    cutout_key = "cut_" + cache.key_hash(url)
-    data = cache.get_bytes(cutout_key)
-    if data is not None:
-        return data
+    cutout_key = "cut_" + cache.key_hash(url, cache_variant)
 
-    if s3_url:
+    if prefer_s3 and s3_url:
         s3_key = "s3_" + cache.key_hash(s3_url)
         data = cache.get_bytes(s3_key)
         if data is not None:
@@ -128,6 +144,9 @@ def fetch_cutout(image: Dict[str, str], ra: float, dec: float,
             return data
         log.info("S3 download failed; falling back to IRSA cutout for %s", base_url)
 
+    data = cache.get_bytes(cutout_key)
+    if data is not None:
+        return data
     data = _download(url)
     if data is not None:
         cache.set_bytes(cutout_key, data)
@@ -135,14 +154,19 @@ def fetch_cutout(image: Dict[str, str], ra: float, dec: float,
 
 
 def fetch_all(images: List[Dict[str, Any]], ra: float, dec: float,
-              size_deg: float) -> List[Tuple[Dict[str, Any], Optional[bytes]]]:
+              size_deg: float, prefer_s3: bool = False,
+              cache_variant: str = "default"
+              ) -> List[Tuple[Dict[str, Any], Optional[bytes]]]:
     """Fetch cutouts for every image in parallel. Order is preserved.
 
     Failed downloads come back as ``(meta, None)`` so the caller can report
     "N of M frames loaded" instead of failing the whole request.
     """
     def one(meta: Dict[str, Any]):
-        return meta, fetch_cutout(meta.get("image"), ra, dec, size_deg)
+        return meta, fetch_cutout(
+            meta.get("image"), ra, dec, size_deg, prefer_s3=prefer_s3,
+            cache_variant=cache_variant,
+        )
 
     with ThreadPoolExecutor(max_workers=config.MAX_PARALLEL_DOWNLOADS) as pool:
         return list(pool.map(one, images))

@@ -30,8 +30,8 @@ class Cutout:
     flags: np.ndarray
     variance: np.ndarray     # (MJy/sr)^2
     zodi: np.ndarray         # MJy/sr
-    wave: np.ndarray         # central wavelength per pixel, micron
-    bandwidth: np.ndarray    # bandwidth per pixel, micron
+    wave: Optional[np.ndarray]  # central wavelength per pixel, micron
+    bandwidth: Optional[np.ndarray]  # bandwidth per pixel, micron
     version: str
 
 
@@ -56,7 +56,8 @@ def _wavelength_maps(hdr, hdul, shape) -> Tuple[np.ndarray, np.ndarray]:
         return nan, nan
 
 
-def parse_cutout(content: bytes, meta: Dict[str, Any]) -> Cutout:
+def parse_cutout(content: bytes, meta: Dict[str, Any],
+                 include_wavelength: bool = True) -> Cutout:
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         with fits.open(io.BytesIO(content), memmap=False) as hdul:
@@ -66,9 +67,35 @@ def parse_cutout(content: bytes, meta: Dict[str, Any]) -> Cutout:
             variance = np.array(hdul["VARIANCE"].data, dtype=np.float32)
             zodi = np.array(hdul["ZODI"].data, dtype=np.float32)
             wcs = WCS(hdr)
-            wave, bw = _wavelength_maps(hdr, hdul, image.shape)
+            wave, bw = (_wavelength_maps(hdr, hdul, image.shape)
+                        if include_wavelength else (None, None))
             version = str(hdul[0].header.get("VERSION", ""))
     return Cutout(meta, wcs, image, flags, variance, zodi, wave, bw, version)
+
+
+def wavelength_at(content: bytes, ra: float, dec: float
+                  ) -> Tuple[Optional[float], Optional[float], str]:
+    """Read wavelength and bandwidth at one sky position without loading image pixels."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        with fits.open(io.BytesIO(content), memmap=False) as hdul:
+            hdr = hdul["IMAGE"].header
+            x, y = WCS(hdr).world_to_pixel(SkyCoord(ra * u.deg, dec * u.deg))
+            version = str(hdul[0].header.get("VERSION", ""))
+            if not (0 <= x < hdr["NAXIS1"] and 0 <= y < hdr["NAXIS2"]):
+                return None, None, version
+            try:
+                spec = WCS(hdr, fobj=hdul, key="W")
+                spec.sip = None
+                wave, bandwidth = spec.pixel_to_world(x, y)
+                return (
+                    float(wave.to(u.micrometer).value),
+                    float(bandwidth.to(u.micrometer).value),
+                    version,
+                )
+            except Exception as exc:  # pragma: no cover - depends on real files
+                log.warning("could not read wavelength at position: %s", exc)
+                return None, None, version
 
 
 # ---------------------------------------------------------------- masking ---
