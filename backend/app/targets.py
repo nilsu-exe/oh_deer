@@ -55,7 +55,7 @@ _ALIASES = {
 
 def _find(name: str) -> Optional[Dict[str, Any]]:
     k = _norm_key(name)
-    target_id = _ALIASES.get(k, k)
+    target_id = _norm_key(_ALIASES.get(k, k))
     for t in load_targets():
         if target_id in (
             _norm_key(t.get("id", "")),

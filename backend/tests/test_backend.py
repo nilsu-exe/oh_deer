@@ -111,6 +111,54 @@ def test_wise0855_resolves_offline_from_challenge_coordinates():
 
 # ------------------------------------------------------------------- API ---
 
+@pytest.mark.parametrize("name,preset_id", [
+    ("wise0855", "wise0855"),
+    ("WISE 0855-0714", "wise0855"),
+    ("barnards-star", "barnards-star"),
+    ("Barnard's Star", "barnards-star"),
+    ("Barnard’s Star", "barnards-star"),
+    ("GJ 699", "barnards-star"),
+    ("eps-indi-b", "eps-indi-b"),
+    ("Epsilon Indi B", "eps-indi-b"),
+    ("Epsilon Indi B (Ba/Bb)", "eps-indi-b"),
+    ("eps Ind B", "eps-indi-b"),
+    ("rw-aur", "rw-aur"),
+    ("RW Aurigae", "rw-aur"),
+    ("RW Aur", "rw-aur"),
+    ("r-dra", "r-dra"),
+    ("R Draconis", "r-dra"),
+    ("R Dra", "r-dra"),
+])
+def test_resolve_presets_by_id_display_name_and_alias(monkeypatch, name, preset_id):
+    preset = next(t for t in targets.load_targets() if t["id"] == preset_id)
+    queries = []
+
+    def resolve_catalog_name(catalog_name):
+        queries.append(catalog_name)
+        assert catalog_name == preset["resolve"]
+        return {"ra": RA0, "dec": DEC0}
+
+    monkeypatch.setattr(targets, "_sesame", resolve_catalog_name)
+    response = TestClient(app).get("/api/resolve", params={"name": name, "epoch": 2026.0})
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["name"] == preset["name"]
+    assert body["pm_applied"] == ("pm_ra_masyr" in preset)
+    assert body["ra_hms"] and body["dec_dms"]
+    if "ra" in preset:
+        assert queries == []
+        assert body["ra"] == pytest.approx(preset["ra"])
+        assert body["dec"] == pytest.approx(preset["dec"])
+    else:
+        assert queries == [preset["resolve"]]
+        if body["pm_applied"]:
+            assert body["epoch"] == 2026.0
+            assert body["ra"] != RA0 and body["dec"] != DEC0
+        else:
+            assert body["ra"] == pytest.approx(RA0)
+            assert body["dec"] == pytest.approx(DEC0)
+
+
 def test_frames_endpoint(monkeypatch):
     n = 4
     metas = _metas(n)

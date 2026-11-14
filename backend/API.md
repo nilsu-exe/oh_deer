@@ -172,7 +172,7 @@ Use it to turn a click into a spectrum request.
 ## Others
 
 - `GET /api/targets`: the 5 challenge targets (for preset buttons).
-- `GET /api/resolve?name=...&epoch=`: name to coordinates (SIMBAD; proper motion applied for known targets).
+- `GET /api/resolve?name=...&epoch=`: preset ID (e.g. `barnards-star`), display name, alias, or catalog name to coordinates (SIMBAD; proper motion applied for known targets). Preset matching ignores case and common punctuation.
 - `GET /api/health`.
 - `GET /api/discovery/status`: discovery mode, completed snapshot scopes/times/counts.
 
