@@ -19,7 +19,7 @@ def load_targets() -> List[Dict[str, Any]]:
 def _find(name: str) -> Optional[Dict[str, Any]]:
     n = name.strip().lower()
     for t in load_targets():
-        if n in (t["id"].lower(), t["name"].lower()):
+        if n in (t.get("id").lower(), t.get("name").lower()):
             return t
     return None
 
@@ -57,17 +57,17 @@ def resolve(name: str, epoch: Optional[float] = None) -> Dict[str, Any]:
     t = _find(name)
     try:
         if t and "ra" in t:
-            base = {"ra": t["ra"], "dec": t["dec"]}
+            base = {"ra": t.get("ra"), "dec": t.get("dec")}
         else:
-            base = _sesame(t["resolve"] if t else name)
+            base = _sesame(t.get("resolve") if t else name)
     except Exception as exc:
         raise LookupError(f"could not resolve '{name}': {exc}") from exc
 
-    info: Dict[str, Any] = {"name": t["name"] if t else name, **base,
+    info: Dict[str, Any] = {"name": t.get("name") if t else name, **base,
                             "pm_applied": False, "note": (t or {}).get("note")}
     if t and "pm_ra_masyr" in t:
         ep = config.DEFAULT_EPOCH if epoch is None else epoch
-        info.update(apply_proper_motion(base["ra"], base["dec"], t["pm_ra_masyr"],
-                                        t["pm_dec_masyr"], 2000.0, ep))
+        info.update(apply_proper_motion(base.get("ra"), base.get("dec"), t.get("pm_ra_masyr"),
+                                        t.get("pm_dec_masyr"), 2000.0, ep))
         info.update(pm_applied=True, epoch=ep)
     return info

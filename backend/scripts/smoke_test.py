@@ -26,7 +26,7 @@ EXPECTED_RANGE = {1: (0.75, 1.09), 2: (1.10, 1.62), 3: (1.63, 2.41),
 
 def main():
     t = targets.resolve("wise0855")
-    ra, dec = t["ra"], t["dec"]
+    ra, dec = t.get("ra"), t.get("dec")
     print(f"[1] TAP query at RA={ra:.5f} Dec={dec:.5f} detector {DET} (can take ~20 s)...")
     t0 = time.time()
     images = irsa_client.query_images(ra, dec, DET)
@@ -53,7 +53,7 @@ def main():
     t0 = time.time()
     res = pipeline.build_frames(ra, dec, 0.15, DET, max_frames=30)
     print(f"    {res['counts']} in {time.time() - t0:.1f}s")
-    assert res["frames"], "No frames returned"
+    assert res.get("frames"), "No frames returned"
     print("OK - backend assumptions hold.")
 
 

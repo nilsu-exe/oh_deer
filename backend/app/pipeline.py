@@ -38,26 +38,26 @@ def _bin_frames(frames: List[Dict[str, Any]], bin_days: float) -> List[Dict[str,
     if bin_days <= 0 or not frames:
         for f in frames:
             f["n_stacked"] = 1
-            f["wavelength_range_um"] = [f["wavelength_um"], f["wavelength_um"]]
+            f["wavelength_range_um"] = [f.get("wavelength_um"), f.get("wavelength_um")]
         return frames
-    frames = sorted(frames, key=lambda f: f["mjd"])
+    frames = sorted(frames, key=lambda f: f.get("mjd"))
     t0 = frames[0]["mjd"]
     groups: Dict[int, List[Dict[str, Any]]] = {}
     for f in frames:
-        groups.setdefault(int((f["mjd"] - t0) // bin_days), []).append(f)
+        groups.setdefault(int((f.get("mjd") - t0) // bin_days), []).append(f)
     out = []
     for _, g in sorted(groups.items()):
-        waves = [f["wavelength_um"] for f in g if f["wavelength_um"] is not None]
+        waves = [f.get("wavelength_um") for f in g if f.get("wavelength_um") is not None]
         out.append({
-            "mjd": float(np.mean([f["mjd"] for f in g])),
+            "mjd": float(np.mean([f.get("mjd") for f in g])),
             "det": g[0]["det"],
             "wavelength_um": float(np.mean(waves)) if waves else None,
             "wavelength_range_um": [float(min(waves)), float(max(waves))] if waves else [None, None],
             "bandwidth_um": None,
-            "version": ",".join(sorted({f["version"] for f in g if f["version"]})),
-            "flag_fraction": float(np.mean([f["flag_fraction"] for f in g])),
+            "version": ",".join(sorted({f.get("version") for f in g if f.get("version")})),
+            "flag_fraction": float(np.mean([f.get("flag_fraction") for f in g])),
             "n_stacked": len(g),
-            "array": _nanmean(np.stack([f["array"] for f in g])),
+            "array": _nanmean(np.stack([f.get("array") for f in g])),
         })
     return out
 
@@ -97,7 +97,7 @@ def build_frames(ra: float, dec: float, fov: float, det: int, *,
             failed += 1
             continue
         frames.append({
-            "mjd": meta["mjd"], "det": meta.get("det"),
+            "mjd": meta.get("mjd"), "det": meta.get("det"),
             "wavelength_um": None if not np.isfinite(wl) else wl,
             "bandwidth_um": None if not np.isfinite(bw) else bw,
             "version": c.version, "flag_fraction": flag_frac, "array": arr,
@@ -109,27 +109,27 @@ def build_frames(ra: float, dec: float, fov: float, det: int, *,
     if subtract == "median" and len(frames) > 1:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            med = np.nanmedian(np.stack([f["array"] for f in frames]), axis=0)
+            med = np.nanmedian(np.stack([f.get("array") for f in frames]), axis=0)
         for f in frames:
-            f["array"] = f["array"] - med
+            f["array"] = f.get("array") - med
 
     if stretch == "auto":
         stretch = "linear" if signed else "asinh"
-    pngs = processing.encode_frames([f["array"] for f in frames], stretch=stretch)
+    pngs = processing.encode_frames([f.get("array") for f in frames], stretch=stretch)
 
     out_frames = []
     for i, (f, png) in enumerate(zip(frames, pngs)):
         out_frames.append({
             "index": i,
-            "mjd": f["mjd"],
-            "date": _iso(f["mjd"]),
-            "det": f["det"],
-            "wavelength_um": f["wavelength_um"],
-            "wavelength_range_um": f["wavelength_range_um"],
-            "bandwidth_um": f["bandwidth_um"],
-            "n_stacked": f["n_stacked"],
-            "version": f["version"],
-            "flag_fraction": round(f["flag_fraction"], 4),
+            "mjd": f.get("mjd"),
+            "date": _iso(f.get("mjd")),
+            "det": f.get("det"),
+            "wavelength_um": f.get("wavelength_um"),
+            "wavelength_range_um": f.get("wavelength_range_um"),
+            "bandwidth_um": f.get("bandwidth_um"),
+            "n_stacked": f.get("n_stacked"),
+            "version": f.get("version"),
+            "flag_fraction": round(f.get("flag_fraction"), 4),
             "image": png,
         })
 
@@ -176,9 +176,9 @@ def build_spectrum(ra: float, dec: float, *, size: float = 0.04, aperture_px: fl
             failed += 1
             continue
         if p is not None:
-            p["date"] = _iso(p["mjd"])
+            p["date"] = _iso(p.get("mjd"))
             points.append(p)
-    points.sort(key=lambda p: p["wavelength_um"])
+    points.sort(key=lambda p: p.get("wavelength_um"))
     return {
         "query": {"ra": ra, "dec": dec, "aperture_px": aperture_px, "cutout_size_deg": size},
         "counts": {"images_found": n_found, "requested": len(images),

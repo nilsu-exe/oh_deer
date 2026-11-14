@@ -168,7 +168,7 @@ def aperture_point(c: Cutout, ra: float, dec: float, ap: float = 1.5,
         "err_jy": float(np.sqrt(c.variance[in_ap].sum()) * 1e6 * omega),
         "surface_brightness_mjy_sr": float(sb.mean()),
         "n_pix": int(in_ap.sum()),
-        "mjd": c.meta["mjd"],
+        "mjd": c.meta.get("mjd"),
         "det": c.meta.get("det"),
         "version": c.version,
     }

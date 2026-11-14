@@ -26,11 +26,11 @@ def main():
 
     for t in targets.load_targets():
         try:
-            info = targets.resolve(t["id"])
+            info = targets.resolve(t.get("id"))
         except LookupError as exc:
             print(f"SKIP {t['name']}: {exc}")
             continue
-        ra, dec = info["ra"], info["dec"]
+        ra, dec = info.get("ra"), info.get("dec")
         print(f"== {t['name']}  RA={ra:.5f} Dec={dec:.5f}")
         for det in range(1, 7):
             res = pipeline.build_frames(ra, dec, args.fov, det)

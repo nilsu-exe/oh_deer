@@ -41,7 +41,7 @@ def _center(ra: Optional[float], dec: Optional[float], target: Optional[str],
             info = targets.resolve(target, epoch)
         except LookupError as exc:
             raise HTTPException(status_code=404, detail=str(exc))
-        return info["ra"], info["dec"], info
+        return info.get("ra"), info.get("dec"), info
     if ra is None or dec is None:
         raise HTTPException(status_code=422, detail="Provide ra and dec (degrees) or target.")
     if not (0.0 <= ra < 360.0 and -90.0 <= dec <= 90.0):

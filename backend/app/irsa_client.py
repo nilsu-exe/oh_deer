@@ -68,11 +68,11 @@ def query_images(ra: float, dec: float, det: Optional[int] = None) -> List[Dict[
     out: List[Dict[str, Any]] = []
     for row in table:
         try:
-            mjd = float(row["mjd"])
+            mjd = float(row.get("mjd"))
         except (TypeError, ValueError):
             continue
-        uri = str(row["uri"]).lstrip("/")
-        bandpass = str(row["bandpass"])
+        uri = str(row.get("uri")).lstrip("/")
+        bandpass = str(row.get("bandpass"))
         s3_path = uri.removeprefix(_IRSA_SPHEREX_PATH)
         out.append({
             "image": {
@@ -83,7 +83,7 @@ def query_images(ra: float, dec: float, det: Optional[int] = None) -> List[Dict[
             "det": _det_from_bandpass(bandpass),
             "bandpass": bandpass,
         })
-    out.sort(key=lambda r: r["mjd"])
+    out.sort(key=lambda r: r.get("mjd"))
     cache.set_json(key, out)
     return out
 
@@ -109,7 +109,7 @@ def _download(url: str) -> Optional[bytes]:
 def fetch_cutout(image: Dict[str, str], ra: float, dec: float,
                  size_deg: float) -> Optional[bytes]:
     """Try the S3 image first, then an IRSA cutout; return raw FITS bytes."""
-    base_url = image["irsa"]
+    base_url = image.get("irsa")
     s3_url = image.get("s3")
     url = cutout_url(base_url, ra, dec, size_deg)
     cutout_key = "cut_" + cache.key_hash(url)
@@ -142,7 +142,7 @@ def fetch_all(images: List[Dict[str, Any]], ra: float, dec: float,
     "N of M frames loaded" instead of failing the whole request.
     """
     def one(meta: Dict[str, Any]):
-        return meta, fetch_cutout(meta["image"], ra, dec, size_deg)
+        return meta, fetch_cutout(meta.get("image"), ra, dec, size_deg)
 
     with ThreadPoolExecutor(max_workers=config.MAX_PARALLEL_DOWNLOADS) as pool:
         return list(pool.map(one, images))

@@ -89,22 +89,22 @@ def test_aperture_point_detects_star_and_wavelength():
     content = make_mef(RA0, DEC0, RA0, DEC0, rot_deg=20.0, n=40)
     c = processing.parse_cutout(content, {"mjd": 5.0, "det": 3})
     p = processing.aperture_point(c, RA0, DEC0)
-    assert p is not None and p["flux_jy"] > 0
-    assert 1.10 <= p["wavelength_um"] <= 1.62
+    assert p is not None and p.get("flux_jy") > 0
+    assert 1.10 <= p.get("wavelength_um") <= 1.62
     off = processing.aperture_point(c, RA0 + 0.01, DEC0)     # empty sky nearby
-    assert off is None or off["flux_jy"] < 0.1 * p["flux_jy"]
+    assert off is None or off.get("flux_jy") < 0.1 * p.get("flux_jy")
 
 
 def test_proper_motion_barnards_star():
     out = targets.apply_proper_motion(269.45, 4.69, -798.6, 10328.1, 2000.0, 2026.0)
-    assert out["dec"] - 4.69 == pytest.approx(10328.1 * 26 / 3.6e6, rel=1e-6)   # ~0.0746 deg
+    assert out.get("dec") - 4.69 == pytest.approx(10328.1 * 26 / 3.6e6, rel=1e-6)   # ~0.0746 deg
 
 
 def test_wise0855_resolves_offline_from_challenge_coordinates():
     info = targets.resolve("wise0855")
-    assert info["ra"] == pytest.approx(133.79513, abs=1e-5)
-    assert info["dec"] == pytest.approx(-7.245147, abs=1e-5)
-    assert not info["pm_applied"]
+    assert info.get("ra") == pytest.approx(133.79513, abs=1e-5)
+    assert info.get("dec") == pytest.approx(-7.245147, abs=1e-5)
+    assert not info.get("pm_applied")
 
 
 # ------------------------------------------------------------------- API ---
@@ -118,12 +118,12 @@ def test_frames_endpoint(monkeypatch):
     r = client.get("/api/frames", params={"ra": RA0, "dec": DEC0, "fov": 0.1, "det": 2})
     assert r.status_code == 200, r.text
     body = r.json()
-    assert body["counts"]["frames_returned"] == n
-    assert body["grid"]["n_pixels"] == 59
-    f0 = body["frames"][0]
-    assert f0["image"].startswith("data:image/png;base64,")
-    assert 1.10 <= f0["wavelength_um"] <= 1.62
-    assert f0["date"].endswith("Z") and f0["version"] == "test-v1"
+    assert body.get("counts")["frames_returned"] == n
+    assert body.get("grid")["n_pixels"] == 59
+    f0 = body.get("frames")[0]
+    assert f0.get("image").startswith("data:image/png;base64,")
+    assert 1.10 <= f0.get("wavelength_um") <= 1.62
+    assert f0.get("date").endswith("Z") and f0.get("version") == "test-v1"
 
     r2 = client.get("/api/frames", params={"ra": RA0, "dec": DEC0, "bin_days": 2})
     assert r2.json()["counts"]["frames_returned"] == 2
@@ -138,7 +138,7 @@ def test_frames_reports_failed_downloads(monkeypatch):
     contents = [make_mef(RA0, DEC0, RA0, DEC0) for _ in range(3)]
     _patch_irsa(monkeypatch, metas, contents, fail_index=1)
     body = TestClient(app).get("/api/frames", params={"ra": RA0, "dec": DEC0}).json()
-    assert body["counts"]["failed"] == 1 and body["counts"]["frames_returned"] == 2
+    assert body.get("counts")["failed"] == 1 and body.get("counts")["frames_returned"] == 2
 
 
 def test_frames_with_no_images(monkeypatch):
@@ -171,19 +171,19 @@ def test_spectrum_endpoint_sorted_by_wavelength(monkeypatch):
                       "det": 1 + i, "bandpass": f"SPHEREx-D{1 + i}"})
     _patch_irsa(monkeypatch, metas, contents)
     body = TestClient(app).get("/api/spectrum", params={"ra": RA0, "dec": DEC0}).json()
-    waves = [p["wavelength_um"] for p in body["points"]]
+    waves = [p.get("wavelength_um") for p in body.get("points")]
     assert len(waves) == 6 and waves == sorted(waves)
-    assert all(p["flux_jy"] > 0 for p in body["points"])
-    assert {p["det"] for p in body["points"]} == {1, 2, 3, 4, 5, 6}
+    assert all(p.get("flux_jy") > 0 for p in body.get("points"))
+    assert {p.get("det") for p in body.get("points")} == {1, 2, 3, 4, 5, 6}
 
 
 def test_pixel_to_sky_center_is_the_center():
     r = TestClient(app).get("/api/pixel_to_sky",
                             params={"ra": RA0, "dec": DEC0, "fov": 0.1, "x": 29, "y": 29}).json()
-    assert r["ra"] == pytest.approx(RA0, abs=1e-6) and r["dec"] == pytest.approx(DEC0, abs=1e-6)
+    assert r.get("ra") == pytest.approx(RA0, abs=1e-6) and r.get("dec") == pytest.approx(DEC0, abs=1e-6)
     north = TestClient(app).get("/api/pixel_to_sky",
                                 params={"ra": RA0, "dec": DEC0, "fov": 0.1, "x": 29, "y": 20}).json()
-    assert north["dec"] > DEC0      # smaller y (higher in the picture) = north
+    assert north.get("dec") > DEC0      # smaller y (higher in the picture) = north
 
 
 def test_health_and_targets():
