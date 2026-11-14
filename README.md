@@ -68,10 +68,10 @@ frontend/   Web interface
 - The first request for a new position is slow (IRSA query plus downloads); demo targets are pre-cached.
 
 ## Team
-Burak Yeniceri
-Emre Fikri Kocak
-Nilsu Doganci
-Orkun Demirci
+Burak Yeniceri,
+Emre Fikri Kocak,
+Nilsu Doganci,
+Orkun Demirci,
 Zeynep Azra Yildirim
 
 ## Data and credits
