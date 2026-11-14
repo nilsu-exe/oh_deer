@@ -6,7 +6,8 @@ import math
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from . import cache, config
+from . import config
+from . import cache
 
 _TARGETS_FILE = Path(__file__).with_name("targets.json")
 

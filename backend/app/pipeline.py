@@ -8,7 +8,9 @@ from typing import Any, Dict, List, Optional
 import numpy as np
 from astropy.time import Time
 
-from . import config, irsa_client, processing
+from . import processing
+from . import config
+from . import irsa_client
 
 log = logging.getLogger(__name__)
 
@@ -90,7 +92,8 @@ def build_frames(ra: float, dec: float, fov: float, det: int, *,
             wl = processing.sample(c.wave, x, y)
             bw = processing.sample(c.bandwidth, x, y)
         except Exception as exc:
-            log.warning("frame failed (%s): %s", meta.get("base_url"), exc)
+            source = (meta.get("image") or {}).get("irsa")
+            log.warning("frame failed (%s): %s", source, exc)
             failed += 1
             continue
         frames.append({
@@ -168,7 +171,8 @@ def build_spectrum(ra: float, dec: float, *, size: float = 0.04, aperture_px: fl
             c = processing.parse_cutout(content, meta)
             p = processing.aperture_point(c, ra, dec, ap=aperture_px)
         except Exception as exc:
-            log.warning("spectrum point failed (%s): %s", meta.get("base_url"), exc)
+            source = (meta.get("image") or {}).get("irsa")
+            log.warning("spectrum point failed (%s): %s", source, exc)
             failed += 1
             continue
         if p is not None:

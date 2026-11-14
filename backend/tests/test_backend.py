@@ -1,13 +1,14 @@
 """Offline tests with synthetic data. Run:  cd backend && pytest -q"""
+from backend.app import irsa_client, processing
 import numpy as np
 import pytest
 from astropy import units as u
 from astropy.coordinates import SkyCoord
 from fastapi.testclient import TestClient
 
-from app import irsa_client, processing, targets
-from app.main import app
-from synth import fake_wavelength_maps, make_mef
+from backend.app import targets
+from backend.app.main import app
+from backend.tests.synth import fake_wavelength_maps, make_mef
 
 RA0, DEC0 = 133.795, -7.245
 
@@ -18,7 +19,9 @@ def _fake_wavelengths(monkeypatch):
 
 
 def _metas(n, det=2, dt_days=1.0, t0=60800.0):
-    return [{"base_url": f"https://example.invalid/img{i}.fits", "mjd": t0 + i * dt_days,
+    return [{"image": {"s3": f"https://example.invalid/s3/img{i}.fits",
+                       "irsa": f"https://example.invalid/img{i}.fits"},
+             "mjd": t0 + i * dt_days,
              "det": det, "bandpass": f"SPHEREx-D{det}"} for i in range(n)]
 
 
@@ -162,7 +165,9 @@ def test_spectrum_endpoint_sorted_by_wavelength(monkeypatch):
     for i in range(6):
         ra0, dec0 = RA0, DEC0 + (i - 3) * 3 * 6.15 / 3600.0
         contents.append(make_mef(RA0, DEC0, ra0, dec0, rot_deg=7.0 * i, n=40))
-        metas.append({"base_url": f"https://example.invalid/{i}.fits", "mjd": 60800.0 + i,
+        metas.append({"image": {"s3": f"https://example.invalid/s3/{i}.fits",
+                                "irsa": f"https://example.invalid/{i}.fits"},
+                      "mjd": 60800.0 + i,
                       "det": 1 + i, "bandpass": f"SPHEREx-D{1 + i}"})
     _patch_irsa(monkeypatch, metas, contents)
     body = TestClient(app).get("/api/spectrum", params={"ra": RA0, "dec": DEC0}).json()

@@ -17,9 +17,13 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import requests
 
-from . import cache, config
+from . import config
+from . import cache
 
 log = logging.getLogger(__name__)
+
+_IRSA_SPHEREX_PATH = "ibe/data/spherex/"
+_SPHEREX_S3_BASE = "https://nasa-irsa-spherex.s3.us-east-1.amazonaws.com"
 
 _download_slots = threading.BoundedSemaphore(config.MAX_PARALLEL_DOWNLOADS)
 
@@ -36,7 +40,8 @@ def query_images(ra: float, dec: float, det: Optional[int] = None) -> List[Dict[
     """All spectral images whose footprint contains (ra, dec), oldest first.
 
     ``det`` is the detector number 1-6 (``None`` = all six).
-    Returns dicts: ``{"base_url", "mjd", "det", "bandpass"}``.
+    Returns dicts with an ``image`` source mapping (``s3`` then ``irsa``),
+    plus ``mjd``, ``det``, and ``bandpass``.
     """
     key = f"tap_{round(ra, 4)}_{round(dec, 4)}_{det or 'all'}"
     cached = cache.get_json(key, ttl=config.TAP_TTL_SECONDS)
@@ -68,8 +73,12 @@ def query_images(ra: float, dec: float, det: Optional[int] = None) -> List[Dict[
             continue
         uri = str(row["uri"]).lstrip("/")
         bandpass = str(row["bandpass"])
+        s3_path = uri.removeprefix(_IRSA_SPHEREX_PATH)
         out.append({
-            "base_url": f"{config.IRSA_BASE}/{uri}",
+            "image": {
+                "s3": f"{_SPHEREX_S3_BASE}/{s3_path}",
+                "irsa": f"{config.IRSA_BASE}/{uri}",
+            },
             "mjd": mjd,
             "det": _det_from_bandpass(bandpass),
             "bandpass": bandpass,
@@ -97,16 +106,31 @@ def _download(url: str) -> Optional[bytes]:
     return None
 
 
-def fetch_cutout(base_url: str, ra: float, dec: float, size_deg: float) -> Optional[bytes]:
-    """Download one cutout (raw FITS bytes), using the disk cache. None on failure."""
+def fetch_cutout(image: Dict[str, str], ra: float, dec: float,
+                 size_deg: float) -> Optional[bytes]:
+    """Try the S3 image first, then an IRSA cutout; return raw FITS bytes."""
+    base_url = image["irsa"]
+    s3_url = image.get("s3")
     url = cutout_url(base_url, ra, dec, size_deg)
-    key = "cut_" + cache.key_hash(url)
-    data = cache.get_bytes(key)
+    cutout_key = "cut_" + cache.key_hash(url)
+    data = cache.get_bytes(cutout_key)
     if data is not None:
         return data
+
+    if s3_url:
+        s3_key = "s3_" + cache.key_hash(s3_url)
+        data = cache.get_bytes(s3_key)
+        if data is not None:
+            return data
+        data = _download(s3_url)
+        if data is not None:
+            cache.set_bytes(s3_key, data)
+            return data
+        log.info("S3 download failed; falling back to IRSA cutout for %s", base_url)
+
     data = _download(url)
     if data is not None:
-        cache.set_bytes(key, data)
+        cache.set_bytes(cutout_key, data)
     return data
 
 
@@ -118,7 +142,7 @@ def fetch_all(images: List[Dict[str, Any]], ra: float, dec: float,
     "N of M frames loaded" instead of failing the whole request.
     """
     def one(meta: Dict[str, Any]):
-        return meta, fetch_cutout(meta["base_url"], ra, dec, size_deg)
+        return meta, fetch_cutout(meta["image"], ra, dec, size_deg)
 
     with ThreadPoolExecutor(max_workers=config.MAX_PARALLEL_DOWNLOADS) as pool:
         return list(pool.map(one, images))

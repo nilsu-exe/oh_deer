@@ -1,7 +1,8 @@
-"""FastAPI app. Run with:  uvicorn app.main:app --reload   (from the backend/ folder)"""
+"""FastAPI app. Run from backend/ with uvicorn app.main:app --reload."""
 from __future__ import annotations
 
 import logging
+import sys
 from pathlib import Path
 from typing import Literal, Optional
 
@@ -9,12 +10,27 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from . import config, pipeline, processing, targets
+if __package__ in (None, ""):
+    # Support python app/main.py as well as importing app.main.
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+    from app import config, pipeline, processing, targets
+else:
+    from . import config, pipeline, processing, targets
 
 logging.basicConfig(level=logging.INFO)
 
 app = FastAPI(title="SPHEREx sky flipbook API", version="0.1.0")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+
+log = logging.getLogger(__name__)
+
+@app.middleware("http")
+async def log_request_start(request, call_next):
+    log.info("request started: %s %s", request.method, request.url.path)
+    response = await call_next(request)
+    log.info("request completed: %s %s (%s)", request.method, request.url.path,
+             response.status_code)
+    return response
 
 
 def _center(ra: Optional[float], dec: Optional[float], target: Optional[str],
@@ -114,7 +130,13 @@ def pixel_to_sky(ra: float, dec: float, fov: float = 0.1,
     return {"ra": float(ra_out), "dec": float(dec_out)}
 
 
-# Optional: serve the frontend from the same server if ../frontend exists.
+# The frontend is a sibling of backend/ in the repository root.
 _frontend = Path(__file__).resolve().parent.parent.parent / "frontend"
 if _frontend.is_dir():
     app.mount("/", StaticFiles(directory=_frontend, html=True), name="frontend")
+
+
+if __name__ == "__main__":
+    import uvicorn
+
+    uvicorn.run(app, host="127.0.0.1", port=8000)

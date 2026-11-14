@@ -13,9 +13,11 @@ import sys
 import time
 from pathlib import Path
 
+from backend.app import irsa_client, pipeline, processing
+
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from app import irsa_client, pipeline, processing, targets  # noqa: E402
+from backend.app import targets  # noqa: E402
 
 DET = 2
 EXPECTED_RANGE = {1: (0.75, 1.09), 2: (1.10, 1.62), 3: (1.63, 2.41),
@@ -30,11 +32,11 @@ def main():
     images = irsa_client.query_images(ra, dec, DET)
     print(f"    {len(images)} images in {time.time() - t0:.1f}s")
     assert images, "No images found - check the query / IRSA availability"
-    print(f"    first: {images[0]['base_url']}")
+    print(f"    first: {images[0]['image']['irsa']}")
     print(f"    MJD range: {images[0]['mjd']:.2f} .. {images[-1]['mjd']:.2f}")
 
     print("[2] Downloading one cutout...")
-    data = irsa_client.fetch_cutout(images[0]["base_url"], ra, dec, 0.15)
+    data = irsa_client.fetch_cutout(images[0]["image"], ra, dec, 0.15)
     assert data, "Cutout download failed"
     print(f"    {len(data) / 1024:.0f} kB")
 
