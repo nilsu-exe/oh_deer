@@ -8,10 +8,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
 from astropy.time import Time
 
-from . import processing
-from . import config
-from . import irsa_client
-from . import spectral_id
+from . import config, diagnostics, irsa_client, processing, spectral_id
 
 log = logging.getLogger(__name__)
 
@@ -160,61 +157,72 @@ def build_frames(ra: float, dec: float, fov: float, det: int, *,
     wavelength range, and mixing them in one flipbook would make brightness
     changes look like variability or motion.
     """
-    images = irsa_client.query_images(ra, dec, det)
+    with diagnostics.stage(log, "discovery", f"ra={ra:.6f} dec={dec:.6f} detector={det}"):
+        images = irsa_client.query_images(ra, dec, det)
+    discovery = getattr(images, "discovery", None)
     n_found = len(images)
     images = _subsample(images, max_frames)
-    fetched = irsa_client.fetch_all(images, ra, dec, fov * config.CUTOUT_PAD)
+    log.info("frames selected found=%d requested=%d max_frames=%d", n_found, len(images), max_frames)
+    with diagnostics.stage(log, "downloads", f"requested={len(images)}"):
+        fetched = irsa_client.fetch_all(images, ra, dec, fov * config.CUTOUT_PAD)
 
     grid_wcs, shape = processing.make_grid(ra, dec, fov, scale)
     frames: List[Dict[str, Any]] = []
     failed = 0
-    for meta, content in fetched:
-        if content is None:
-            failed += 1
-            continue
-        try:
-            c = processing.parse_cutout(content, meta)
-            img, flag_frac = processing.clean_image(c, sky=sky, mask=mask)
-            arr = processing.reproject_to_grid(img, c.wcs, grid_wcs, shape)
-            x, y = processing.pixel_of(c, ra, dec)
-            wl = processing.sample(c.wave, x, y)
-            bw = processing.sample(c.bandwidth, x, y)
-        except Exception as exc:
-            source = (meta.get("image") or {}).get("irsa")
-            log.warning("frame failed (%s): %s", source, exc)
-            failed += 1
-            continue
-        frames.append({
-            "mjd": meta.get("mjd"), "det": meta.get("det"),
-            "wavelength_um": None if not np.isfinite(wl) else wl,
-            "bandwidth_um": None if not np.isfinite(bw) else bw,
-            "version": c.version, "flag_fraction": flag_frac, "array": arr,
-        })
+    with diagnostics.stage(log, "frame processing", f"cutouts={len(fetched)} grid={shape}"):
+        for index, (meta, content) in enumerate(fetched, 1):
+            diagnostics.set_progress(f"frame={index}/{len(fetched)} step=FITS_parse failed={failed}")
+            if index == 1 or index % 10 == 0:
+                log.info("frame processing progress frame=%d/%d usable=%d failed=%d",
+                         index, len(fetched), len(frames), failed)
+            if content is None:
+                failed += 1
+                continue
+            try:
+                c = processing.parse_cutout(content, meta)
+                img, flag_frac = processing.clean_image(c, sky=sky, mask=mask)
+                diagnostics.set_progress(f"frame={index}/{len(fetched)} step=reprojection failed={failed}")
+                arr = processing.reproject_to_grid(img, c.wcs, grid_wcs, shape)
+                x, y = processing.pixel_of(c, ra, dec)
+                wl = processing.sample(c.wave, x, y)
+                bw = processing.sample(c.bandwidth, x, y)
+            except Exception as exc:
+                log.warning("frame failed (%s): %s", meta.get("base_url"), exc)
+                failed += 1
+                continue
+            frames.append({
+                "mjd": meta["mjd"], "det": meta.get("det"),
+                "wavelength_um": None if not np.isfinite(wl) else wl,
+                "bandwidth_um": None if not np.isfinite(bw) else bw,
+                "version": c.version, "flag_fraction": flag_frac, "array": arr,
+            })
 
-    frames = _bin_frames(frames, bin_days)
-    composites, candidates = _build_composites_and_candidates(frames, grid_wcs, scale)
+    log.info("frame processing summary usable=%d failed=%d", len(frames), failed)
 
-    signed = subtract in ("median", "first", "prev")
-    if len(frames) > 1:
-        if subtract == "median":
+    with diagnostics.stage(log, "stacking and PNG encoding", f"frames={len(frames)} bin_days={bin_days} subtract={subtract}"):
+        frames = _bin_frames(frames, bin_days)
+        composites, candidates = _build_composites_and_candidates(frames, grid_wcs, scale)
+
+        signed = subtract in ("median", "first", "prev")
+        if subtract == "median" and len(frames) > 1:
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
-                med = np.nanmedian(np.stack([f.get("array") for f in frames]), axis=0)
+                med = np.nanmedian(np.stack([f["array"] for f in frames]), axis=0)
             for f in frames:
-                f["array"] = f.get("array") - med
-        elif subtract == "first":
-            base = frames[0].get("array").copy()
+                f["array"] = f["array"] - med
+        elif subtract == "first" and len(frames) > 1:
+            base = frames[0]["array"].copy()
             for f in frames:
-                f["array"] = f.get("array") - base
-        elif subtract == "prev":
-            raw_copy = [f.get("array").copy() for f in frames]
+                f["array"] = f["array"] - base
+        elif subtract == "prev" and len(frames) > 1:
+            raw_copy = [f["array"].copy() for f in frames]
             frames[0]["array"] = raw_copy[0] - raw_copy[1]
             for i in range(1, len(frames)):
                 frames[i]["array"] = raw_copy[i] - raw_copy[i - 1]
 
-    if stretch == "auto":
-        stretch = "linear" if signed else "asinh"
-    pngs = processing.encode_frames([f.get("array") for f in frames], stretch=stretch)
+        if stretch == "auto":
+            stretch = "linear" if signed else "asinh"
+        pngs = processing.encode_frames([f["array"] for f in frames], stretch=stretch)
 
     out_frames = []
     for i, (f, png) in enumerate(zip(frames, pngs)):
@@ -232,6 +240,7 @@ def build_frames(ra: float, dec: float, fov: float, det: int, *,
             "image": png,
         })
 
+    log.info("frames response ready returned=%d requested=%d failed=%d", len(out_frames), len(images), failed)
     n = shape[0]
     return {
         "query": {"ra": ra, "dec": dec, "fov_deg": fov, "det": det, "bin_days": bin_days,
@@ -245,6 +254,7 @@ def build_frames(ra: float, dec: float, fov: float, det: int, *,
         "frames": out_frames,
         "composites": composites,
         "candidates": candidates,
+        "discovery": discovery,
     }
 
 
@@ -259,41 +269,53 @@ def build_spectrum(ra: float, dec: float, *, size: float = 0.04, aperture_px: fl
     block (feature identification, redshift, distances); pass `z` to fix the
     redshift instead of estimating it.
     """
-    images = irsa_client.query_images(ra, dec, None)
+    with diagnostics.stage(log, "discovery", f"ra={ra:.6f} dec={dec:.6f} detectors=all"):
+        images = irsa_client.query_selected_images(ra, dec, dets)
+    discovery = getattr(images, "discovery", None)
     if dets:
         images = [m for m in images if m.get("det") in dets]
     n_found = len(images)
     images = _subsample(images, max_frames)
-    fetched = irsa_client.fetch_all(images, ra, dec, size)
+    log.info("spectrum selected found=%d requested=%d max_frames=%d", n_found, len(images), max_frames)
+    with diagnostics.stage(log, "downloads", f"requested={len(images)}"):
+        fetched = irsa_client.fetch_all(images, ra, dec, size, aperture_only=True)
 
     points, failed = [], 0
-    for meta, content in fetched:
-        if content is None:
-            failed += 1
-            continue
+    with diagnostics.stage(log, "spectrum processing", f"cutouts={len(fetched)} aperture={aperture_px}"):
+        for index, (meta, content) in enumerate(fetched, 1):
+            diagnostics.set_progress(f"exposure={index}/{len(fetched)} step=FITS_parse failed={failed}")
+            if index == 1 or index % 10 == 0:
+                log.info("spectrum processing progress exposure=%d/%d points=%d failed=%d",
+                         index, len(fetched), len(points), failed)
+            if content is None:
+                failed += 1
+                continue
+            try:
+                c = processing.parse_cutout(content, meta)
+                diagnostics.set_progress(f"exposure={index}/{len(fetched)} step=photometry failed={failed}")
+                p = processing.aperture_point(c, ra, dec, ap=aperture_px)
+            except Exception as exc:
+                log.warning("spectrum point failed (%s): %s", meta.get("base_url"), exc)
+                failed += 1
+                continue
+            if p is not None:
+                p["date"] = _iso(p["mjd"])
+                points.append(p)
+    points.sort(key=lambda p: p["wavelength_um"])
+    with diagnostics.stage(log, "spectral analysis", f"points={len(points)} z={z}"):
         try:
-            c = processing.parse_cutout(content, meta)
-            p = processing.aperture_point(c, ra, dec, ap=aperture_px)
-        except Exception as exc:
-            source = (meta.get("image") or {}).get("irsa")
-            log.warning("spectrum point failed (%s): %s", source, exc)
-            failed += 1
-            continue
-        if p is not None:
-            p["date"] = _iso(p.get("mjd"))
-            points.append(p)
-    points.sort(key=lambda p: p.get("wavelength_um"))
-    try:
-        analysis = spectral_id.analyze_spectrum(points, known_z=z)
-    except Exception as exc:     # analysis must never break the spectrum itself
-        log.exception("spectral analysis failed")
-        analysis = {"error": f"analysis failed: {exc}"}
+            analysis = spectral_id.analyze_spectrum(points, known_z=z)
+        except Exception as exc:     # analysis must never break the spectrum itself
+            log.exception("spectral analysis failed")
+            analysis = {"error": f"analysis failed: {exc}"}
+    log.info("spectrum response ready points=%d requested=%d failed=%d", len(points), len(images), failed)
     return {
         "query": {"ra": ra, "dec": dec, "aperture_px": aperture_px, "cutout_size_deg": size},
         "counts": {"images_found": n_found, "requested": len(images),
                    "failed": failed, "points": len(points)},
         "points": points,
         "analysis": analysis,
+        "discovery": discovery,
         "notes": ("flux_jy = aperture sum minus local median background; no aperture correction. "
                   "Quick-look only, not calibrated point-source photometry."),
     }

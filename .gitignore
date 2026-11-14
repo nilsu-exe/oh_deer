@@ -1,6 +1,5 @@
-.venv/
-.cache/
-__pycache__/
-.pytest_cache/
-*.pyc
-*.zip
+ui/node_modules/
+ui/dist/
+ui/.vite/
+*.tsbuildinfo
+.DS_Store

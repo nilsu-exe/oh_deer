@@ -1,14 +1,14 @@
 """Offline tests with synthetic data. Run:  cd backend && pytest -q"""
-from backend.app import irsa_client, processing
+from app import irsa_client, processing
 import numpy as np
 import pytest
 from astropy import units as u
 from astropy.coordinates import SkyCoord
 from fastapi.testclient import TestClient
 
-from backend.app import targets
-from backend.app.main import app
-from backend.tests.synth import fake_wavelength_maps, make_mef
+from app import targets
+from app.main import app
+from synth import fake_wavelength_maps, make_mef
 
 RA0, DEC0 = 133.795, -7.245
 
@@ -27,13 +27,16 @@ def _metas(n, det=2, dt_days=1.0, t0=60800.0):
 
 def _patch_irsa(monkeypatch, metas, contents, fail_index=None):
     monkeypatch.setattr(irsa_client, "query_images", lambda ra, dec, det=None: metas)
+    fetch_modes = []
 
-    def fake_fetch_all(images, ra, dec, size):
+    def fake_fetch_all(images, ra, dec, size, *, aperture_only=False):
+        fetch_modes.append(aperture_only)
         out = []
         for i, m in enumerate(images):
             out.append((m, None if i == fail_index else contents[i]))
         return out
     monkeypatch.setattr(irsa_client, "fetch_all", fake_fetch_all)
+    return fetch_modes
 
 
 # ------------------------------------------------------------ processing ---
@@ -113,17 +116,18 @@ def test_frames_endpoint(monkeypatch):
     n = 4
     metas = _metas(n)
     contents = [make_mef(RA0, DEC0 + i * 2 * 6.15 / 3600, RA0, DEC0, rot_deg=15.0 * i) for i in range(n)]
-    _patch_irsa(monkeypatch, metas, contents)
+    fetch_modes = _patch_irsa(monkeypatch, metas, contents)
     client = TestClient(app)
     r = client.get("/api/frames", params={"ra": RA0, "dec": DEC0, "fov": 0.1, "det": 2})
     assert r.status_code == 200, r.text
     body = r.json()
-    assert body.get("counts")["frames_returned"] == n
-    assert body.get("grid")["n_pixels"] == 59
-    f0 = body.get("frames")[0]
-    assert f0.get("image").startswith("data:image/png;base64,")
-    assert 1.10 <= f0.get("wavelength_um") <= 1.62
-    assert f0.get("date").endswith("Z") and f0.get("version") == "test-v1"
+    assert body["counts"]["frames_returned"] == n
+    assert body["grid"]["n_pixels"] == 59
+    f0 = body["frames"][0]
+    assert f0["image"].startswith("data:image/png;base64,")
+    assert 1.10 <= f0["wavelength_um"] <= 1.62
+    assert f0["date"].endswith("Z") and f0["version"] == "test-v1"
+    assert fetch_modes == [False]
 
     r2 = client.get("/api/frames", params={"ra": RA0, "dec": DEC0, "bin_days": 2})
     assert r2.json()["counts"]["frames_returned"] == 2
@@ -169,12 +173,13 @@ def test_spectrum_endpoint_sorted_by_wavelength(monkeypatch):
                                 "irsa": f"https://example.invalid/{i}.fits"},
                       "mjd": 60800.0 + i,
                       "det": 1 + i, "bandpass": f"SPHEREx-D{1 + i}"})
-    _patch_irsa(monkeypatch, metas, contents)
+    fetch_modes = _patch_irsa(monkeypatch, metas, contents)
     body = TestClient(app).get("/api/spectrum", params={"ra": RA0, "dec": DEC0}).json()
     waves = [p.get("wavelength_um") for p in body.get("points")]
     assert len(waves) == 6 and waves == sorted(waves)
     assert all(p.get("flux_jy") > 0 for p in body.get("points"))
     assert {p.get("det") for p in body.get("points")} == {1, 2, 3, 4, 5, 6}
+    assert fetch_modes == [True]
     assert "analysis" in body and "redshift" in body["analysis"]
 
     fixed = TestClient(app).get("/api/spectrum", params={"ra": RA0, "dec": DEC0, "z": 0.158}).json()

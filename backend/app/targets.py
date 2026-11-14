@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import math
 import re
 from pathlib import Path
@@ -12,6 +13,8 @@ from astropy.coordinates import Angle, SkyCoord
 
 from . import cache
 from . import config
+
+log = logging.getLogger(__name__)
 
 _TARGETS_FILE = Path(__file__).with_name("targets.json")
 

@@ -17,7 +17,7 @@
   {
     "id": "eps-indi-b",
     "name": "Epsilon Indi B (Ba/Bb)",
-    "resolve": "eps Ind Ba",
+    "resolve": "eps Ind B",
     "pm_ra_masyr": 3966.0,
     "pm_dec_masyr": -2536.0,
     "note": "Brown dwarf pair, shares the high proper motion of Epsilon Indi A. Verify the resolved position against SIMBAD."

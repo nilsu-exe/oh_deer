@@ -30,7 +30,7 @@ class Cutout:
     image: np.ndarray        # MJy/sr, zodi NOT subtracted
     flags: np.ndarray
     variance: np.ndarray     # (MJy/sr)^2
-    zodi: np.ndarray         # MJy/sr
+    zodi: Optional[np.ndarray]  # MJy/sr; omitted in aperture-only cutouts
     wave: np.ndarray         # central wavelength per pixel, micron
     bandwidth: np.ndarray    # bandwidth per pixel, micron
     version: str
@@ -65,7 +65,7 @@ def parse_cutout(content: bytes, meta: Dict[str, Any]) -> Cutout:
             image = np.array(hdul["IMAGE"].data, dtype=np.float32)
             flags = np.array(hdul["FLAGS"].data, dtype=np.int64)
             variance = np.array(hdul["VARIANCE"].data, dtype=np.float32)
-            zodi = np.array(hdul["ZODI"].data, dtype=np.float32)
+            zodi = np.array(hdul["ZODI"].data, dtype=np.float32) if "ZODI" in hdul else None
             wcs = WCS(hdr)
             wave, bw = _wavelength_maps(hdr, hdul, image.shape)
             version = str(hdul[0].header.get("VERSION", ""))
@@ -88,6 +88,8 @@ def clean_image(c: Cutout, sky: str = "median", mask: bool = True) -> Tuple[np.n
     """
     img = c.image.astype(np.float32).copy()
     if sky == "zodi":
+        if c.zodi is None:
+            raise ValueError("ZODI is required for zodiacal background subtraction")
         img -= c.zodi
     bad = bad_mask(c.flags) if mask else np.zeros(img.shape, dtype=bool)
     img[bad] = np.nan

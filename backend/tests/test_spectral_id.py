@@ -161,7 +161,11 @@ def test_analyze_and_spectrum_handlers(monkeypatch):
             "mjd": 60800.0, "det": 2, "bandpass": "SPHEREx-D2"}
     content = make_mef(ra0, dec0, ra0, dec0, rot_deg=0.0, n=40)
     monkeypatch.setattr(pipeline.irsa_client, "query_images", lambda ra, dec, det=None: [meta])
-    monkeypatch.setattr(pipeline.irsa_client, "fetch_all", lambda images, ra, dec, size: [(meta, content)])
+    def fetch_all(images, ra, dec, size, *, aperture_only=False):
+        assert aperture_only
+        return [(meta, content)]
+
+    monkeypatch.setattr(pipeline.irsa_client, "fetch_all", fetch_all)
     spec = main.spectrum(ra=ra0, dec=dec0, aperture_px=1.5, size=0.04, max_frames=600, dets="2", z=0.158)
     assert "analysis" in spec
     assert spec["analysis"]["redshift"]["z"] == pytest.approx(0.158)
