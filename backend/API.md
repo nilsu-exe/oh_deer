@@ -47,7 +47,7 @@ Frontend notes:
 ## `GET /api/spectrum`: spectrum at a position
 
 Params: `ra`/`dec` or `target`, `aperture_px` (1.5), `size` (0.04 deg cutout per exposure),
-`max_frames` (600), `dets` (e.g. `1,2`). Uses all six detectors by default.
+`max_frames` (600), `dets` (e.g. `1,2`), `z` (optional known redshift). Uses all six detectors by default.
 
 ```json
 {
@@ -63,6 +63,62 @@ Params: `ra`/`dec` or `target`, `aperture_px` (1.5), `size` (0.04 deg cutout per
 
 Points are sorted by wavelength: plot `flux_jy` vs `wavelength_um` with `err_jy` error bars.
 First call for a position can take minutes (hundreds of cutouts); later calls are cached.
+
+Optional `z` (0-10) fixes the redshift instead of estimating it. The response also carries an
+`analysis` block (same shape as `POST /api/spectrum/analyze` below; `{"error": ...}` if it failed).
+
+## `POST /api/spectrum/analyze`: feature identification, redshift, distance
+
+Runs the analysis on points you send (no IRSA query; good for cached/custom spectra).
+
+```json
+{ "points": [ { "wavelength_um": 2.17, "flux_jy": 0.012, "err_jy": 0.0003 } ], "z": null }
+```
+
+`err_jy` is optional (estimated from scatter if missing); `z` is optional (estimated if omitted).
+Steps: inverse-variance binning onto the 102 channels (6 detectors x 17) -> redshift template
+scan (z = 0..3.5, step 0.002) -> greedy, deblended window photometry of each reference feature ->
+flat LambdaCDM distances (H0 = 70, Om0 = 0.3).
+
+```json
+{
+  "n_channels": 102,
+  "binned_102": [ { "channel": 1, "det": 1, "channel_center_um": 0.7583, "wavelength_um": 0.758,
+                    "flux_jy": 0.0071, "err_jy": 0.00004, "n_exposures": 3 } ],
+  "redshift": { "z": 0.158, "z_err": 0.0147, "confidence": "High", "regime": "extragalactic",
+                "matched_lines": ["PAH 3.3 µm", "Paschen-α (Paα)", "Paschen-β (Paβ)", "H-alpha (Hα)"],
+                "method": "template_scan", "candidates": [ { "z": 0.158, "score": 16032.7, "matched_lines": ["..."] } ] },
+  "cosmology": { "regime": "extragalactic", "is_extragalactic": true, "redshift_z": 0.158,
+                 "recession_velocity_kms": 43665, "comoving_distance_mpc": 651.9,
+                 "luminosity_distance_mpc": 755.0, "luminosity_distance_err_mpc": 52.4,
+                 "angular_diameter_distance_mpc": 563.0, "luminosity_distance_ly": 2.46e9,
+                 "luminosity_distance_gly": 2.46, "lookback_time_gyr": 1.976,
+                 "age_at_emission_gyr": 11.49, "distance_modulus_mag": 39.39, "...": "..." },
+  "detections": [
+    { "id": "pa_alpha", "name": "Paschen-α (Paα)", "type": "emission", "category": "atomic_emission",
+      "rest_wavelength_um": 1.875, "observed_wavelength_um": 2.171, "z": 0.158,
+      "continuum_flux_jy": 0.0105, "observed_flux_jy": 0.0161, "delta_flux_jy": 0.0056,
+      "contrast_pct": 53.2, "optical_depth_tau": 0.0, "equivalent_width_um": -0.0265,
+      "equivalent_width_rest_um": -0.0229, "equivalent_width_fit_um": -0.0362,
+      "snr": 12.2, "confidence": "High", "continuum_method": "linear", "deblended": true,
+      "region_points": [ { "wavelength_um": 2.07, "flux_jy": 0.0104, "continuum_jy": 0.0104, "in_core": false } ] }
+  ],
+  "summary_classification": "Redshifted Extragalactic AGN / Starburst"
+}
+```
+
+Notes:
+- `regime` is `galactic` when z < 0.003: Hubble-flow distances are `null` (use parallax instead).
+- `confidence`: High S/N >= 5, Medium >= 3, Low >= 2. Equivalent widths are positive for absorption,
+  negative for emission. `equivalent_width_um` is side-band photometry (slightly low for broad bands);
+  `equivalent_width_fit_um` is from a Gaussian + continuum fit.
+- `optical_depth_tau` = -ln(F_trough / F_continuum) for absorption features, 0 for emission.
+- `region_points` holds the core and continuum points used, for shading the feature in a plot.
+
+## `GET /api/spectral_features`
+
+The reference feature library (rest wavelength, type, FWHM, continuum windows, category) and the
+102-channel grid.
 
 ## `GET /api/pixel_to_sky`: turn a click into coordinates
 

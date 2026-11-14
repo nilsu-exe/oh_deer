@@ -175,6 +175,11 @@ def test_spectrum_endpoint_sorted_by_wavelength(monkeypatch):
     assert len(waves) == 6 and waves == sorted(waves)
     assert all(p.get("flux_jy") > 0 for p in body.get("points"))
     assert {p.get("det") for p in body.get("points")} == {1, 2, 3, 4, 5, 6}
+    assert "analysis" in body and "redshift" in body["analysis"]
+
+    fixed = TestClient(app).get("/api/spectrum", params={"ra": RA0, "dec": DEC0, "z": 0.158}).json()
+    assert fixed["analysis"]["redshift"]["z"] == pytest.approx(0.158)
+    assert fixed["analysis"]["cosmology"]["regime"] == "extragalactic"
 
 
 def test_pixel_to_sky_center_is_the_center():

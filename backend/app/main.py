@@ -4,18 +4,19 @@ from __future__ import annotations
 import logging
 import sys
 from pathlib import Path
-from typing import Literal, Optional
+from typing import List, Literal, Optional
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel, ConfigDict, Field
 
 if __package__ in (None, ""):
     # Support python app/main.py as well as importing app.main.
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-    from app import config, pipeline, processing, targets
+    from app import config, pipeline, processing, spectral_id, targets
 else:
-    from . import config, pipeline, processing, targets
+    from . import config, pipeline, processing, spectral_id, targets
 
 logging.basicConfig(level=logging.INFO)
 
@@ -102,6 +103,7 @@ def spectrum(
     size: float = Query(0.04, ge=0.02, le=0.2, description="Cutout size per exposure, degrees"),
     max_frames: int = Query(600, ge=0, le=3000),
     dets: Optional[str] = Query(None, description="Comma-separated detectors, e.g. '1,2'"),
+    z: Optional[float] = Query(None, ge=0.0, le=10.0, description="Optional known redshift override"),
 ):
     ra, dec, info = _center(ra, dec, target, epoch)
     det_list = None
@@ -111,9 +113,35 @@ def spectrum(
         except ValueError:
             raise HTTPException(status_code=422, detail="dets must be comma-separated integers")
     result = pipeline.build_spectrum(ra, dec, size=size, aperture_px=aperture_px,
-                                     max_frames=max_frames, dets=det_list)
+                                     max_frames=max_frames, dets=det_list, z=z)
     result["resolved"] = info
     return result
+
+
+class SpectrumPoint(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    wavelength_um: float = Field(..., gt=0.0)
+    flux_jy: float
+    err_jy: Optional[float] = Field(None, ge=0.0)
+
+
+class AnalyzeRequest(BaseModel):
+    points: List[SpectrumPoint]
+    z: Optional[float] = Field(None, ge=0.0, le=10.0, description="Known redshift (skip estimation)")
+
+
+@app.post("/api/spectrum/analyze")
+def analyze_spectrum(req: AnalyzeRequest):
+    """Feature identification + redshift + distances for supplied points (no IRSA query)."""
+    points = [p.model_dump() for p in req.points]
+    return spectral_id.analyze_spectrum(points, known_z=req.z)
+
+
+@app.get("/api/spectral_features")
+def spectral_features():
+    """Reference feature library and the 102-channel grid used by the analysis."""
+    return {"features": [f.to_dict() for f in spectral_id.SPECTRAL_FEATURES],
+            "channels": spectral_id.CHANNELS}
 
 
 @app.get("/api/pixel_to_sky")

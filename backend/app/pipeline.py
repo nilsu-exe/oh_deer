@@ -11,6 +11,7 @@ from astropy.time import Time
 from . import processing
 from . import config
 from . import irsa_client
+from . import spectral_id
 
 log = logging.getLogger(__name__)
 
@@ -148,12 +149,15 @@ def build_frames(ra: float, dec: float, fov: float, det: int, *,
 
 
 def build_spectrum(ra: float, dec: float, *, size: float = 0.04, aperture_px: float = 1.5,
-                   max_frames: int = 600, dets: Optional[List[int]] = None) -> Dict[str, Any]:
+                   max_frames: int = 600, dets: Optional[List[int]] = None,
+                   z: Optional[float] = None) -> Dict[str, Any]:
     """Quick-look spectrum at (ra, dec) from every exposure on all (or chosen) detectors.
 
     Each exposure samples the position at a different wavelength (the filters
     vary across the detector), so stacking all exposures from all six arrays
-    traces out the 0.75-5 micron spectrum.
+    traces out the 0.75-5 micron spectrum. The result carries an `analysis`
+    block (feature identification, redshift, distances); pass `z` to fix the
+    redshift instead of estimating it.
     """
     images = irsa_client.query_images(ra, dec, None)
     if dets:
@@ -179,11 +183,17 @@ def build_spectrum(ra: float, dec: float, *, size: float = 0.04, aperture_px: fl
             p["date"] = _iso(p.get("mjd"))
             points.append(p)
     points.sort(key=lambda p: p.get("wavelength_um"))
+    try:
+        analysis = spectral_id.analyze_spectrum(points, known_z=z)
+    except Exception as exc:     # analysis must never break the spectrum itself
+        log.exception("spectral analysis failed")
+        analysis = {"error": f"analysis failed: {exc}"}
     return {
         "query": {"ra": ra, "dec": dec, "aperture_px": aperture_px, "cutout_size_deg": size},
         "counts": {"images_found": n_found, "requested": len(images),
                    "failed": failed, "points": len(points)},
         "points": points,
+        "analysis": analysis,
         "notes": ("flux_jy = aperture sum minus local median background; no aperture correction. "
                   "Quick-look only, not calibrated point-source photometry."),
     }
