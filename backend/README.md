@@ -56,8 +56,9 @@ cutouts are cached forever (their URLs include the processing version).
   fast movers use a larger FOV. Per-frame centring on a motion model would be a good extension.
 - **Proper motion.** SIMBAD positions are J2000. Barnard's Star moves ~10"/yr, so by 2026 it is
   ~4.5' from its J2000 position; `targets.json` applies proper motion for targets that list it.
-  Those proper-motion values and the SIMBAD names (`eps Ind Ba`, ...) were written from memory:
-  **verify them**, and check each target actually appears in the first frames.
+  Those proper-motion values were written from memory: **verify them**, and check each target
+  actually appears in the first frames. Epsilon Indi B uses the working CDS identifier
+  `eps Ind B`; the former `eps Ind Ba` identifier does not resolve.
 - **Median subtraction (`subtract=median`)** removes static sources, but since each exposure sees
   a star at a *different wavelength*, bright stars leave residuals. Best on a single narrow band.
 - **Spectra are quick-look.** Aperture sum minus local background, no aperture correction or
