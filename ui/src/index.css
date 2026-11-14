@@ -129,7 +129,8 @@
 .coordinate-pill { flex: 1; }
 .coordinate-pill > span, .fov-pill > span { color: var(--muted-foreground); }
 .coordinate-pill input, .fov-pill input { width: 100%; padding: 0; border: 0; background: transparent; color: var(--foreground); border-radius: 2px; }
-.coordinate-pill input:focus-visible, .fov-pill input:focus-visible { outline-offset: 2px; }
+.coordinate-pill:focus-within, .fov-pill:focus-within { outline: 2px solid var(--primary); outline-offset: 3px; }
+.coordinate-pill input:focus-visible, .fov-pill input:focus-visible { outline: none; }
 .fov-pill { flex: 0 0 99px; gap: 5px; }
 .fov-pill input { width: 34px; }
 .fov-pill .fov-unit { margin-left: -4px; color: var(--foreground); }
