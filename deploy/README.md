@@ -169,3 +169,7 @@ backend to deploy this feature: `docker compose up -d --build backend`.
 No additional volume is needed. The first render still consumes CPU; subsequent
 hits are logged as `render cache hit`. Keep the cache writable by UID/GID 10001
 and monitor disk space, since successful renders are retained without eviction.
+
+Spectrum points and analysis are also persisted in this same `render` directory,
+including spectra used by the lightcurve endpoint. No new mount or settings are
+required; rebuild the backend to enable spectrum reuse.

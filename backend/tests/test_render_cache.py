@@ -70,3 +70,68 @@ def test_concurrent_misses_partial_retry_and_corruption(monkeypatch):
     path.write_text('broken JSON')
     render()
     assert len(calls) == 3
+
+
+def test_spectrum_disk_reuse_options_sources_and_discovery(monkeypatch):
+    from app import spectral_id
+
+    class Images(list):
+        discovery = {'age_seconds': 1}
+
+    metas = Images([{'base_url': 'https://example.invalid/spec.fits',
+                     'mjd': 60800., 'det': 2}])
+    monkeypatch.setattr(irsa_client, 'query_selected_images', lambda *a: metas)
+    monkeypatch.setattr(processing, '_wavelength_maps', fake_wavelength_maps)
+    content = make_mef(133.795, -7.245, 133.795, -7.245)
+    calls = []
+    analyses = []
+
+    def fetch(images, *args, aperture_only=False):
+        assert aperture_only
+        calls.append(1)
+        return [(m, content) for m in images]
+
+    def analyze(points, known_z=None):
+        analyses.append(known_z)
+        return {'z': known_z}
+
+    monkeypatch.setattr(irsa_client, 'fetch_all', fetch)
+    monkeypatch.setattr(spectral_id, 'analyze_spectrum', analyze)
+    client = TestClient(app)
+    query = {'ra': 133.795, 'dec': -7.245, 'dets': '2'}
+    first = client.get('/api/spectrum', params=query)
+    assert first.status_code == 200
+    assert first.json()['points']
+    assert list((config.CACHE_DIR / 'render').glob('*.json'))
+    metas.discovery = {'age_seconds': 2}
+    second = client.get('/api/spectrum', params=query).json()
+    assert second == {**first.json(), 'discovery': metas.discovery}
+    assert len(calls) == len(analyses) == 1
+    for changed in ({'aperture_px': 2}, {'size': .05}, {'max_frames': 1}, {'z': .2},
+                    {'ra': 133.7951}, {'dets': '3'}):
+        response = client.get('/api/spectrum', params={**query, **changed})
+        assert response.status_code == 200
+    assert len(calls) == 7
+    metas[0]['base_url'] = 'https://example.invalid/spec-v2.fits'
+    assert client.get('/api/spectrum', params=query).status_code == 200
+    assert len(calls) == 8
+
+
+def test_spectrum_analysis_errors_expire():
+    calls = []
+
+    @render_cache.cached_render
+    def spectrum():
+        calls.append(1)
+        return {'counts': {'failed': 0}, 'analysis': {'error': 'temporary failure'}}
+
+    spectrum()
+    spectrum()
+    assert len(calls) == 1
+    path = next((config.CACHE_DIR / 'render').glob('*.json'))
+    entry = json.loads(path.read_text())
+    assert entry['expires'] is not None
+    entry['expires'] = 0
+    path.write_text(json.dumps(entry))
+    spectrum()
+    assert len(calls) == 2

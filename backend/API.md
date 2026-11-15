@@ -205,3 +205,9 @@ unchanged. Identical rendering options and source exposures reuse the stored
 result without repeating FITS processing. Discovery is checked on each request;
 new exposures invalidate the render and discovery status stays current. Partial
 results may be reused for up to 60 seconds before failed exposures are retried.
+
+`/api/spectrum` likewise caches points and analysis in `.cache/render`, with no
+response schema changes. Coordinates, aperture, cutout size, frame limit, source
+exposures, and redshift override participate in the cache key. Discovery status
+remains current; partial results and analysis errors are retried after 60 seconds.
+`/api/lightcurve` shares this spectrum cache for its underlying photometry.

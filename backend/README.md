@@ -219,3 +219,12 @@ remove obsolete render files when needed (raw cutouts and discovery snapshots
 are independent). Bump `VERSION` in `app/render_cache.py` when dependency updates
 change rendering behavior; pipeline/processing/config source changes invalidate
 automatically. Cache hit/miss messages appear in backend logs.
+
+Spectrum results also use `.cache/render`: `/api/spectrum` caches the extracted
+points and spectral analysis together, keyed by coordinates, aperture, cutout
+size, frame limit, selected exposure metadata, and redshift override. Hits skip
+cutout fetching, FITS parsing, photometry, and spectral analysis. `/api/lightcurve`
+reuses the same cached spectrum before calculating its variability metrics.
+Discovery metadata is refreshed on every request. Download/parse failures and
+analysis errors expire after 60 seconds; successful spectra persist indefinitely.
+Changes to `spectral_id.py` also invalidate cached results.

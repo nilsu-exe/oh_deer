@@ -1,4 +1,4 @@
-"""Persistent rendered responses, including every embedded PNG.
+"""Persistent image and spectrum responses, including every embedded PNG.
 
 Discovery runs before lookup so new exposures invalidate results. Bump VERSION
 when changing dependencies in ways that affect rendering; local source edits are
@@ -24,7 +24,7 @@ log = logging.getLogger(__name__)
 _LOCKS = [threading.Lock() for _ in range(64)]
 _SOURCE = hashlib.sha256(b''.join(
     Path(__file__).with_name(name).read_bytes()
-    for name in ('pipeline.py', 'processing.py', 'config.py', 'render_cache.py')
+    for name in ('pipeline.py', 'processing.py', 'config.py', 'render_cache.py', 'spectral_id.py')
 )).hexdigest()
 
 
@@ -57,7 +57,8 @@ def cached_render(func):
             log.info('render cache miss function=%s key=%s', func.__name__, key)
             result = func(*args, **kwargs)
             # Retain partial images too, but retry transient download/parse failures.
-            partial = result['counts']['failed'] > 0
+            partial = (result['counts']['failed'] > 0
+                       or 'error' in (result.get('analysis') or {}))
             entry = {'expires': time.time() + PARTIAL_TTL if partial else None,
                      'result': result}
             cache._atomic_write(path, json.dumps(entry).encode())
