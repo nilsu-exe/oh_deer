@@ -201,6 +201,19 @@ def test_sexagesimal_and_coordinate_resolution():
     assert "ra_hms" in sky and "dec_dms" in sky
 
 
+def test_all_five_challenge_targets_resolve_offline(monkeypatch):
+    monkeypatch.setattr(targets, "_sesame", lambda name: pytest.fail(f"SIMBAD called for {name}"))
+    expected_ids = ["wise0855", "barnards-star", "eps-indi-b", "rw-aur", "r-dra"]
+    for tid in expected_ids:
+        info = targets.resolve(tid, epoch=2026.0)
+        assert 0.0 <= info["ra"] < 360.0
+        assert -90.0 <= info["dec"] <= 90.0
+        assert "ra_hms" in info and "dec_dms" in info
+    # Proper motion must be applied for Barnard's Star and Epsilon Indi B
+    assert targets.resolve("barnards-star", epoch=2026.0)["pm_applied"] is True
+    assert targets.resolve("eps-indi-b", epoch=2026.0)["pm_applied"] is True
+
+
 def test_coadds_epoch_diff_and_candidate_detection(monkeypatch):
     ra0, dec0 = 133.795, -7.245
     # 4 exposures across 2 epochs (180 days apart): star shifts north by 5 pixels in Epoch 2
@@ -213,12 +226,17 @@ def test_coadds_epoch_diff_and_candidate_detection(monkeypatch):
             "base_url": f"https://example.invalid/{i}.fits",
             "mjd": mjd, "det": 2, "bandpass": "SPHEREx-D2",
         })
-        contents.append(make_mef(ra0, dec_s, ra0, dec0, rot_deg=10.0 * i))
+        contents.append(make_mef(
+            ra0, dec_s, ra0, dec0, rot_deg=10.0 * i,
+            hot_pixel=(10, 10), source_pixel=(50, 50),
+        ))
 
     monkeypatch.setattr(pipeline.irsa_client, "query_images", lambda ra, dec, det=None: metas)
     monkeypatch.setattr(pipeline.irsa_client, "fetch_all", lambda images, ra, dec, size: list(zip(metas, contents)))
 
     res = pipeline.build_frames(ra0, dec0, 0.1, 2)
+    assert "HOT" in res["frames"][0]["flags_breakdown"]
+    assert "SOURCE" in res["frames"][0]["flags_breakdown"]
     comp = res["composites"]
     assert comp["coadd_mean_image"].startswith("data:image/png;base64,")
     assert comp["max_projection_image"].startswith("data:image/png;base64,")

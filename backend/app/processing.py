@@ -81,6 +81,18 @@ def bad_mask(flags: np.ndarray, bits: Optional[Sequence[int]] = None) -> np.ndar
     return (flags & m) != 0
 
 
+def summarize_flags(flags: np.ndarray) -> Dict[str, float]:
+    """Return a mapping of active SPHEREx flag bit names to their pixel fraction."""
+    if flags.size == 0:
+        return {}
+    out: Dict[str, float] = {}
+    for bit, name in sorted(config.FLAG_BIT_NAMES.items()):
+        hit = (flags & (1 << bit)) != 0
+        if np.any(hit):
+            out[name] = round(float(hit.mean()), 4)
+    return out
+
+
 def clean_image(c: Cutout, sky: str = "median", mask: bool = True) -> Tuple[np.ndarray, float]:
     """Return (image with bad pixels = NaN, fraction of pixels masked).
 
@@ -153,8 +165,10 @@ def aperture_point(c: Cutout, ra: float, dec: float, ap: float = 1.5,
         return None
     yy, xx = np.indices(c.image.shape)
     r = np.hypot(xx - x, yy - y)
-    good = ~bad_mask(c.flags) & np.isfinite(c.image)
-    in_ap = (r <= ap) & good
+    ap_disc = r <= ap
+    bad = bad_mask(c.flags)
+    good = ~bad & np.isfinite(c.image)
+    in_ap = ap_disc & good
     in_ann = (r >= ann[0]) & (r <= ann[1]) & good
     if in_ap.sum() < 2 or in_ann.sum() < 10:
         return None
@@ -164,6 +178,11 @@ def aperture_point(c: Cutout, ra: float, dec: float, ap: float = 1.5,
     wl = sample(c.wave, x, y)
     if not np.isfinite(wl):
         return None
+    ap_flags_or = int(np.bitwise_or.reduce(c.flags[ap_disc].ravel())) if np.any(ap_disc) else 0
+    active_ap_flags = [
+        name for bit, name in sorted(config.FLAG_BIT_NAMES.items())
+        if (ap_flags_or & (1 << bit)) != 0
+    ]
     return {
         "wavelength_um": wl,
         "bandwidth_um": _nan_to_none(sample(c.bandwidth, x, y)),
@@ -171,6 +190,8 @@ def aperture_point(c: Cutout, ra: float, dec: float, ap: float = 1.5,
         "err_jy": float(np.sqrt(c.variance[in_ap].sum()) * 1e6 * omega),
         "surface_brightness_mjy_sr": float(sb.mean()),
         "n_pix": int(in_ap.sum()),
+        "n_masked_pix": int((ap_disc & bad).sum()),
+        "aperture_flags": active_ap_flags,
         "mjd": c.meta.get("mjd"),
         "det": c.meta.get("det"),
         "version": c.version,

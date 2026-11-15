@@ -118,12 +118,25 @@ def _build_composites_and_candidates(
     return composites, candidates
 
 
+def _merge_flag_breakdowns(group: List[Dict[str, Any]]) -> Dict[str, float]:
+    """Average per-bit flag fractions across a group of stacked frames."""
+    if not group:
+        return {}
+    keys = sorted({k for f in group for k in (f.get("flags_breakdown") or {}).keys()})
+    n = float(len(group))
+    return {
+        k: round(sum(float((f.get("flags_breakdown") or {}).get(k, 0.0)) for f in group) / n, 4)
+        for k in keys
+    }
+
+
 def _bin_frames(frames: List[Dict[str, Any]], bin_days: float) -> List[Dict[str, Any]]:
     """Average frames that fall into the same time bin (improves S/N)."""
     if bin_days <= 0 or not frames:
         for f in frames:
             f["n_stacked"] = 1
             f["wavelength_range_um"] = [f.get("wavelength_um"), f.get("wavelength_um")]
+            f.setdefault("flags_breakdown", {})
         return frames
     frames = sorted(frames, key=lambda f: f.get("mjd"))
     t0 = frames[0]["mjd"]
@@ -141,6 +154,7 @@ def _bin_frames(frames: List[Dict[str, Any]], bin_days: float) -> List[Dict[str,
             "bandwidth_um": None,
             "version": ",".join(sorted({f.get("version") for f in g if f.get("version")})),
             "flag_fraction": float(np.mean([f.get("flag_fraction") for f in g])),
+            "flags_breakdown": _merge_flag_breakdowns(g),
             "n_stacked": len(g),
             "array": _nanmean(np.stack([f.get("array") for f in g])),
         })
@@ -181,6 +195,7 @@ def build_frames(ra: float, dec: float, fov: float, det: int, *,
             try:
                 c = processing.parse_cutout(content, meta)
                 img, flag_frac = processing.clean_image(c, sky=sky, mask=mask)
+                flag_breakdown = processing.summarize_flags(c.flags)
                 diagnostics.set_progress(f"frame={index}/{len(fetched)} step=reprojection failed={failed}")
                 arr = processing.reproject_to_grid(img, c.wcs, grid_wcs, shape)
                 x, y = processing.pixel_of(c, ra, dec)
@@ -194,7 +209,10 @@ def build_frames(ra: float, dec: float, fov: float, det: int, *,
                 "mjd": meta["mjd"], "det": meta.get("det"),
                 "wavelength_um": None if not np.isfinite(wl) else wl,
                 "bandwidth_um": None if not np.isfinite(bw) else bw,
-                "version": c.version, "flag_fraction": flag_frac, "array": arr,
+                "version": c.version,
+                "flag_fraction": flag_frac,
+                "flags_breakdown": flag_breakdown,
+                "array": arr,
             })
 
     log.info("frame processing summary usable=%d failed=%d", len(frames), failed)
@@ -237,6 +255,7 @@ def build_frames(ra: float, dec: float, fov: float, det: int, *,
             "n_stacked": f.get("n_stacked"),
             "version": f.get("version"),
             "flag_fraction": round(f.get("flag_fraction"), 4),
+            "flags_breakdown": f.get("flags_breakdown") or {},
             "image": png,
         })
 

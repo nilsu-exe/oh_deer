@@ -10,28 +10,36 @@
     "id": "barnards-star",
     "name": "Barnard's Star",
     "resolve": "Barnard's star",
+    "ra": 269.452077,
+    "dec": 4.693365,
     "pm_ra_masyr": -798.6,
     "pm_dec_masyr": 10328.1,
-    "note": "Moves ~10.3 arcsec/yr. SIMBAD gives the J2000 position, which is ~4.5 arcmin away by 2026, so proper motion is applied to the epoch."
+    "note": "Moves ~10.3 arcsec/yr. J2000 ICRS (17h57m48.50s, +04d41m36.11s) is ~4.5 arcmin away by 2026, so proper motion is propagated to the observation epoch."
   },
   {
     "id": "eps-indi-b",
     "name": "Epsilon Indi B (Ba/Bb)",
     "resolve": "eps Ind B",
+    "ra": 331.043833,
+    "dec": -56.782694,
     "pm_ra_masyr": 3966.0,
     "pm_dec_masyr": -2536.0,
-    "note": "Brown dwarf pair, shares the high proper motion of Epsilon Indi A. Verify the resolved position against SIMBAD."
+    "note": "Brown dwarf pair (J2000 22h04m10.52s, -56d46m57.7s), shares the high proper motion (~4.7 arcsec/yr) of Epsilon Indi A."
   },
   {
     "id": "rw-aur",
     "name": "RW Aurigae",
     "resolve": "RW Aur",
-    "note": "Variable star; small proper motion."
+    "ra": 76.956538,
+    "dec": 30.401433,
+    "note": "T Tauri variable star (J2000 05h07m49.57s, +30d24m05.16s); exhibits large optical and near-IR brightness variations."
   },
   {
     "id": "r-dra",
     "name": "R Draconis",
     "resolve": "R Dra",
-    "note": "Variable star; small proper motion."
+    "ra": 248.167617,
+    "dec": 66.754747,
+    "note": "Mira-type pulsating red giant variable star (J2000 16h32m40.23s, +66d45m17.09s) with a ~245.6-day period."
   }
 ]

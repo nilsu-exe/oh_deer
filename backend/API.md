@@ -37,6 +37,7 @@ Response (abbreviated):
     { "index": 0, "mjd": 60811.1, "date": "2025-05-14T02:41:09Z", "det": 2,
       "wavelength_um": 1.31, "wavelength_range_um": [1.31, 1.31], "bandwidth_um": 0.03,
       "n_stacked": 1, "version": "...", "flag_fraction": 0.012,
+      "flags_breakdown": { "HOT": 0.001, "SOURCE": 0.008 },
       "image": "data:image/png;base64,..." }
   ],
   "composites": {
@@ -77,7 +78,8 @@ combine local snapshots and remote/cache results.
 {
   "points": [
     { "wavelength_um": 0.81, "bandwidth_um": 0.02, "flux_jy": 0.0021, "err_jy": 0.0004,
-      "surface_brightness_mjy_sr": 0.8, "n_pix": 9, "mjd": 60811.1, "det": 1,
+      "surface_brightness_mjy_sr": 0.8, "n_pix": 9, "n_masked_pix": 0,
+      "aperture_flags": ["SOURCE"], "mjd": 60811.1, "det": 1,
       "date": "2025-05-14T02:41:09Z", "version": "..." }
   ],
   "counts": { "images_found": 500, "requested": 500, "failed": 3, "points": 470 },
