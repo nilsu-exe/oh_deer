@@ -1,9 +1,11 @@
-# Docker deployment
+# Docker backend with host Nginx
 
-Run these commands from the repository root on a Linux host with Docker Compose.
-Only Nginx publishes ports; the API runs as UID/GID `10001:10001` on the private
-Compose network. Keep unrelated containers off that network because Uvicorn trusts
-proxy headers from its peers.
+Run these commands from the repository root on a Linux host with Docker Compose
+and systemd. Nginx runs directly on the host using the distribution-provided
+`nginx.service`; only the backend runs in Docker. The API runs as UID/GID
+`10001:10001` and publishes only `127.0.0.1:8000`. Host Nginx serves ports 80/443.
+Keep unrelated containers off the Compose network because Uvicorn trusts proxy
+headers from its peers. Local host processes can also reach the API.
 
 ## Preserve the existing snapshot first
 
@@ -48,14 +50,15 @@ UID/GID `10001:10001`.
 Create a Cloudflare Origin CA certificate for your public hostname. Install the
 certificate as `/etc/oh-deer/certs/origin.pem` and its private key as
 `/etc/oh-deer/certs/origin.key` on the host (directory `0750`, private key `0600`,
-root-owned). The directory is mounted read-only at `/etc/nginx/certs`. Nginx
-intentionally will not start until valid certificate files exist.
+root-owned). Host Nginx reads these paths directly; no certificate mount or
+Compose environment variable is needed. Nginx intentionally will not start until
+valid certificate files exist.
 
 Enable proxied DNS and **Full (strict)** SSL/TLS in Cloudflare. Replace both
 `server_name _;` entries in `nginx.conf` with your hostname. Origin CA certificates
 are for Cloudflare-to-origin traffic; browsers do not normally trust them directly.
 Restrict public ingress on ports 80/443 to Cloudflare's published IP ranges using
-the host/cloud firewall (account for Docker's published-port firewall rules).
+the host/cloud firewall.
 The trusted ranges in `cloudflare-real-ip.conf` must be reviewed when deploying.
 Only those peers can supply `CF-Connecting-IP`; client-supplied forwarding chains
 are overwritten before reaching the backend.
@@ -63,37 +66,82 @@ are overwritten before reaching the backend.
 References: [Origin CA setup](https://developers.cloudflare.com/ssl/origin-configuration/origin-ca/)
 and [Cloudflare IP ranges](https://www.cloudflare.com/ips/).
 
+## Install host Nginx and migrate
+
+The supplied `nginx.conf` is a complete configuration for a dedicated host, not a
+`sites-enabled` snippet. It uses Debian/Ubuntu's `www-data` worker user and
+`/run/nginx.pid`, matching the packaged systemd service. On other distributions,
+use the package's worker user (often `nginx`) and verify its PID path. If this host
+already serves other applications, merge the configuration instead of replacing it.
+
+On Debian/Ubuntu, install the package (its service may start with a default page):
+
+```bash
+sudo apt-get update
+sudo apt-get install -y nginx
+sudo systemctl stop nginx
+```
+
+If migrating from the previous Docker Nginx deployment, remove its container
+before starting host Nginx to release ports 80/443. With the updated Compose file:
+
+```bash
+docker compose config --quiet
+docker compose up -d --build --remove-orphans backend
+```
+
+This removes the old Nginx service container while preserving the host cache.
+The backend's loopback endpoint stays the same across container replacement;
+Nginx no longer needs Docker DNS. Start Docker at boot with
+`sudo systemctl enable docker`; Compose's restart policy restarts the backend.
+Host Nginx can start independently; API requests return 502 until the backend is ready.
+
 ## Static bundle and startup
 
-The default static directory is `deploy/static/`, containing a placeholder page.
-To serve the application, build the UI:
+Install the placeholder page initially:
+
+```bash
+sudo install -d -m 0755 /var/www/oh-deer
+sudo install -m 0644 deploy/static/index.html /var/www/oh-deer/index.html
+```
+
+To serve the application instead, build and copy the UI:
 
 ```bash
 cd ui
 pnpm install --frozen-lockfile
 pnpm build
 cd ..
+sudo rsync -a --chmod=D755,F644 ui/dist/ /var/www/oh-deer/
 ```
 
-Set `STATIC_BUNDLE_PATH=./ui/dist` in `.env`. Leave `VITE_API_BASE_URL` unset when
-building so the frontend uses same-origin `/api` requests. Static files are mounted
-read-only; SPA routes fall back to `index.html`, while missing `/assets/` files
-return 404. Fingerprinted assets cache for a year; the entry HTML revalidates.
+Leave `VITE_API_BASE_URL` unset when building so the frontend uses same-origin
+`/api` requests. SPA routes fall back to `index.html`, while missing `/assets/`
+files return 404. Fingerprinted assets cache for a year; entry HTML revalidates.
+`STATIC_BUNDLE_PATH` and `ORIGIN_CERTS_PATH` from the old Compose deployment are
+no longer used; the paths are now set directly in `nginx.conf`.
+
+After installing the origin certificate and setting the hostname as described
+above, install the configuration. Back up any existing host configuration first:
 
 ```bash
-docker compose config --quiet
-docker compose build backend
-docker compose up -d backend
-docker compose run --rm --no-deps nginx nginx -t
-docker compose up -d nginx
+sudo cp -a /etc/nginx/nginx.conf /etc/nginx/nginx.conf.backup-$(date +%Y%m%d-%H%M%S)
+sudo install -m 0644 nginx.conf /etc/nginx/nginx.conf
+sudo install -m 0644 deploy/cloudflare-real-ip.conf /etc/nginx/cloudflare-real-ip.conf
+sudo nginx -t
+# Proceed only if nginx -t succeeds.
+sudo systemctl enable --now nginx
+sudo systemctl reload nginx
+curl --fail http://127.0.0.1:8000/api/health
 docker compose exec backend python scripts/sync_discovery.py --status
 curl --fail https://YOUR_HOSTNAME/api/health
 ```
 
-After replacing an existing backend container, Nginx re-resolves Docker DNS within
-10 seconds. Reload Nginx after changing its configuration or certificates with
-`docker compose exec nginx nginx -t && docker compose exec nginx nginx -s reload`.
-Recreate Nginx when changing the static bundle mount path in `.env`.
+After configuration or certificate changes, validate and reload with
+`sudo nginx -t && sudo systemctl reload nginx`. Static file updates need no reload.
+Check service status with `sudo systemctl status nginx` and startup diagnostics
+with `sudo journalctl -u nginx`. Request logs are in `/var/log/nginx/access.log`
+and `/var/log/nginx/error.log` (rotated by the distribution's Nginx logrotate setup).
 
 ## Traffic policy
 

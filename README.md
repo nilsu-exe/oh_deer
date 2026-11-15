@@ -56,7 +56,8 @@ If a `frontend/` folder sits next to `backend/`, the server serves it at `/`. Be
 
 ## Docker deployment
 
-See [deployment instructions](deploy/README.md) for Docker Compose, migration of
+See [deployment instructions](deploy/README.md) for the Docker backend and host
+Nginx systemd service, migration of
 the existing cache snapshot to `/var/lib/oh-deer/cache`, static bundle hosting,
 and Cloudflare origin TLS. The cache is a host bind mount and survives container
 removal. Nginx handles HTTPS and per-visitor API rate limiting.

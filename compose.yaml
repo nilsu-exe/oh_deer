@@ -14,27 +14,7 @@ services:
         target: /app/.cache
         bind:
           create_host_path: false
-    # Only Nginx can reach this port; do not publish it to the host.
-    expose:
-      - "8000"
-    stop_grace_period: 60s
-
-  nginx:
-    image: nginx:1.28-alpine
-    restart: unless-stopped
-    depends_on:
-      backend:
-        condition: service_healthy
+    # Host Nginx connects over loopback; never bind the API to a public interface.
     ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./deploy/cloudflare-real-ip.conf:/etc/nginx/cloudflare-real-ip.conf:ro
-      - ${STATIC_BUNDLE_PATH:-./deploy/static}:/usr/share/nginx/html:ro
-      - type: bind
-        source: ${ORIGIN_CERTS_PATH:-/etc/oh-deer/certs}
-        target: /etc/nginx/certs
-        read_only: true
-        bind:
-          create_host_path: false
+      - "127.0.0.1:8000:8000"
+    stop_grace_period: 60s
