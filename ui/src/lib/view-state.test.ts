@@ -5,7 +5,7 @@ describe('shareable viewer state', () => {
   it('round-trips coordinates, analysis options, playback, camera and drawings across screen sizes', () => {
     const state = readViewState(new URL('https://sky.example/?ra=0&dec=-90'))
     Object.assign(state, {
-      detector: 6, fov: 0.2, view: 'lightcurve', stack: '5', projection: 'max', maxPerDet: 60,
+      detector: 6, fov: 0.2, view: 'spectrum', stack: '5', projection: 'max', maxPerDet: 60,
       stretch: 'linear', mask: false, binDays: 30, aperture: 2, lcScope: 'selected', metric: 'delta_mag',
       frame: 12, speed: 2, loop: false, camera: { x: 88, y: -44, zoom: 3 },
       strokes: [{ id: 'original', color: '#f4c76b', points: [{ x: 0.25, y: 0.75 }, { x: 0.5, y: 0.5 }] }],

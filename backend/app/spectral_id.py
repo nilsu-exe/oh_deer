@@ -489,7 +489,8 @@ def _estimate_redshift_arrays(wl, fl, er, z_max: float = 3.5, dz: float = 0.002)
                 candidates.append({"z": _num(grid[i]), "score": _num(scores[i]),
                                    "matched_lines": [f.name for f, _ in goods[i]]})
         i_ext = int(np.argmax(masked))
-        if scores[i_ext] > EXTRAGALACTIC_MARGIN * gal_score:
+        n_gal = len(goods[i_gal])
+        if scores[i_ext] > EXTRAGALACTIC_MARGIN * gal_score and (n_gal < 4 or len(goods[i_ext]) > n_gal):
             z = float(grid[i_ext])
             g = goods[i_ext]
             return {"z": _num(z), "z_err": _num(_z_err(z, g, dz)), "confidence": _confidence_from_lines(g),

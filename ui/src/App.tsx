@@ -6,10 +6,10 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuLabel, DropdownMenuRadio
 import { Slider } from '@/components/ui/slider'
 import { SkyCanvas } from '@/components/sky-canvas'
 import { useFlipbook } from '@/hooks/use-flipbook'
-import { DETECTORS, PRESETS, type DetectorResponse, type LightcurveResponse, type Selection, type SpectrumResponse } from '@/lib/api'
+import { DETECTORS, PRESETS, type DetectorResponse, type Selection, type SpectrumResponse } from '@/lib/api'
 import { INITIAL_CAMERA, zoomAt } from '@/lib/camera'
 import { useApiResource } from '@/hooks/use-api-resource'
-import { DetectorPanel, DiscoveryNote, FlagBreakdown, LightcurvePanel, ResourceMessage, SpectrumPanel } from '@/components/science-panels'
+import { DetectorPanel, DiscoveryNote, FlagBreakdown, ResourceMessage, SpectrumPanel } from '@/components/science-panels'
 import { createShareUrl, readViewState, type ViewMode, type ViewState } from '@/lib/view-state'
 import type { CanvasTool, Stroke } from '@/lib/annotations'
 
@@ -26,17 +26,16 @@ export default function App() {
   const [maxPerDet, setMaxPerDet] = useState(initial.maxPerDet)
   const [stretch, setStretch] = useState(initial.stretch)
   const [mask, setMask] = useState(initial.mask)
-  const [binDays, setBinDays] = useState(initial.binDays)
+  const [binDays] = useState(initial.binDays)
   const [aperture, setAperture] = useState(initial.aperture)
   const [lcScope, setLcScope] = useState(initial.lcScope)
-  const [metric, setMetric] = useState(initial.metric)
+  const [metric] = useState(initial.metric)
   const [retry, setRetry] = useState(0)
   const { data, position: framePosition, state, error } = useFlipbook(selection, detector, fov, retry, view === 'flipbook')
   const query: Record<string, string | number> = 'target' in selection ? { target: selection.target, epoch: 2026 } : { ra: selection.ra, dec: selection.dec }
   const stacks = useApiResource<DetectorResponse>('detectors', { ...query, fov, max_per_det: maxPerDet, stretch, mask: String(mask) }, view === 'detectors')
   const spectrum = useApiResource<SpectrumResponse>('spectrum', { ...query, aperture_px: aperture, ...(lcScope === 'selected' ? { dets: String(detector) } : {}) }, view === 'spectrum')
-  const lightcurve = useApiResource<LightcurveResponse>('lightcurve', { ...query, bin_days: binDays, aperture_px: aperture, ...(lcScope === 'selected' ? { dets: String(detector) } : {}) }, view === 'lightcurve')
-  const position = view === 'detectors' ? stacks.data?.resolved : view === 'spectrum' ? spectrum.data?.resolved : view === 'lightcurve' ? lightcurve.data?.resolved : framePosition
+  const position = view === 'detectors' ? stacks.data?.resolved : view === 'spectrum' ? spectrum.data?.resolved : framePosition
   const [camera, setCamera] = useState(initial.camera)
   const [canvasSize, setCanvasSize] = useState(712)
   const [frameIndex, setFrameIndex] = useState(initial.frame)
@@ -158,7 +157,6 @@ export default function App() {
     if (!position || Math.abs(ra - position.ra) > 0.00000051 || Math.abs(dec - position.dec) > 0.00000051) setSelection({ ra, dec })
     else if (view === 'detectors') stacks.reload()
     else if (view === 'spectrum') spectrum.reload()
-    else if (view === 'lightcurve') lightcurve.reload()
     else setRetry(value => value + 1)
   }
 
@@ -265,22 +263,21 @@ export default function App() {
     </form>
 
     <nav className="view-toolbar" aria-label="Viewer mode">
-      <div className="view-tabs glass">{([['flipbook', 'Flipbook'], ['detectors', 'Detector stacks'], ['spectrum', 'Spectrum'], ['lightcurve', 'Light curve']] as const).map(([mode, label]) => <Button type="button" variant="ghost" key={mode} className={`toolbar-button ${view === mode ? 'is-active' : ''}`} aria-pressed={view === mode} onClick={() => setView(mode)}>{label}</Button>)}</div>
+      <div className="view-tabs glass">{([['flipbook', 'Flipbook'], ['detectors', 'Detector stacks'], ['spectrum', 'Spectrum']] as const).map(([mode, label]) => <Button type="button" variant="ghost" key={mode} className={`toolbar-button ${view === mode ? 'is-active' : ''}`} aria-pressed={view === mode} onClick={() => setView(mode)}>{label}</Button>)}</div>
       {view !== 'flipbook' && <Popover>
         <PopoverTrigger asChild><Button variant="ghost" className="toolbar-button glass icon-button" aria-label="Analysis settings" title="Analysis settings"><SlidersHorizontal size={14} /></Button></PopoverTrigger>
         <PopoverContent className="glass science-popover settings-popover ui-normal" align="end">
-          <h2>{view === 'detectors' ? 'Stack settings' : view === 'spectrum' ? 'Spectrum settings' : 'Light curve settings'}</h2>
+          <h2>{view === 'detectors' ? 'Stack settings' : 'Spectrum settings'}</h2>
           {view === 'detectors' ? <>
             <label>Exposures per detector<select aria-label="Maximum exposures per detector" value={maxPerDet} onChange={event => setMaxPerDet(Number(event.target.value))}>{[...new Set([10, 30, 60, 120, 300, maxPerDet])].sort((a, b) => a - b).map(number => <option key={number} value={number}>{number}</option>)}</select></label>
             <label>Brightness stretch<select aria-label="Stack brightness stretch" value={stretch} onChange={event => setStretch(event.target.value as typeof stretch)}><option value="asinh">Asinh</option><option value="linear">Linear</option></select></label>
             <label className="check-label"><input type="checkbox" checked={mask} onChange={event => setMask(event.target.checked)} />Mask contaminated pixels</label>
           </> : <>
-            {view === 'lightcurve' && <label>Time-bin width<select aria-label="Light curve time-bin width" value={binDays} onChange={event => setBinDays(Number(event.target.value))}>{[...new Set([0.5, 1, 5, 10, 30, 90, 180, binDays])].sort((a, b) => a - b).map(number => <option key={number} value={number}>{number} days</option>)}</select></label>}
             <label>Aperture radius<select aria-label="Photometry aperture radius" value={aperture} onChange={event => setAperture(Number(event.target.value))}>{[...new Set([0.5, 1, 1.5, 2, 3, 5, aperture])].sort((a, b) => a - b).map(number => <option key={number} value={number}>{number} pixels</option>)}</select></label>
             <label>Detector coverage<select aria-label="Light curve detector coverage" value={lcScope} onChange={event => setLcScope(event.target.value as typeof lcScope)}><option value="all">All six detectors</option><option value="selected">Selected detector · D{detector}</option></select></label>
           </>}
           <p className="menu-note">Changes load a new analysis. More exposures can take longer.</p>
-          <Button className="toolbar-button glass" variant="ghost" onClick={view === 'detectors' ? stacks.reload : view === 'spectrum' ? spectrum.reload : lightcurve.reload}><RotateCcw size={12} />Reload analysis</Button>
+          <Button className="toolbar-button glass" variant="ghost" onClick={view === 'detectors' ? stacks.reload : spectrum.reload}><RotateCcw size={12} />Reload analysis</Button>
         </PopoverContent>
       </Popover>}
       <Popover open={shareOpen} onOpenChange={open => { setShareOpen(open); if (open) { setPlaying(false); generateShare() } }}>
@@ -312,7 +309,6 @@ export default function App() {
       <p className="stack-caption glass">{stackLabel} · {targetLabel}</p>
     </> : <ResourceMessage loading={stacks.loading} error={stacks.error} onRetry={stacks.reload} label="detector stacks" />)}
     {view === 'spectrum' && (spectrum.data ? <SpectrumPanel data={spectrum.data} /> : <ResourceMessage loading={spectrum.loading} error={spectrum.error} onRetry={spectrum.reload} label="the spectrum" />)}
-    {view === 'lightcurve' && (lightcurve.data ? <LightcurvePanel data={lightcurve.data} metric={metric} onMetric={setMetric} /> : <ResourceMessage loading={lightcurve.loading} error={lightcurve.error} onRetry={lightcurve.reload} label="the light curve" />)}
 
     {validation && <div className="validation-message glass" role="alert"><CircleAlert size={14} />{validation}<button type="button" onClick={() => setValidation('')} aria-label="Dismiss validation message">×</button></div>}
 

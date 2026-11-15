@@ -289,14 +289,31 @@ export function SpectrumPanel({ data }: { data: SpectrumResponse }) {
           </g>)}
 
           {/* 2. Dashed / Dotted / Dash-Dot Connector Lines from Barcode Strip down to the Flux Curve */}
-          {detections.map((det, idx) => {
+          {detections.slice().sort((a, b) => a.observed_wavelength_um - b.observed_wavelength_um).map((det, idx) => {
             const cx = x(det.observed_wavelength_um)
             if (cx < plotLeft || cx > plotRight) return null
             const curveY = y(sampleFluxAt(det.observed_wavelength_um))
             const { dash } = featureDashStyle(det.id, det.name)
             const stopY = det.type === 'emission' ? Math.max(stripBottom + 8, curveY - 8) : Math.max(stripBottom + 8, curveY - 6)
-            const shortLabel = det.name.replace(/\s*\(.*?\)/g, '').split(' ')[0]
-            const labelY = stripBottom + 13 + (idx % 2) * 11
+            const labelMap: Record<string, string> = {
+              h2o_vapor_14: 'H₂O',
+              h2o_vapor_19: 'H₂O',
+              h2o_ice: 'H₂O Ice',
+              ch4_166: 'CH₄',
+              ch4_331: 'CH₄',
+              nh3_200: 'NH₃',
+              co_overtone: 'CO',
+              co_ice: 'CO',
+              co2_ice: 'CO₂',
+              pah_330: 'PAH',
+              br_gamma: 'Brγ',
+              pa_alpha: 'Paα',
+              pa_beta: 'Paβ',
+              h_alpha: 'Hα',
+              oiii_5007: '[O III]',
+            }
+            const shortLabel = labelMap[det.id] ?? det.name.replace(/\s*\(.*?\)/g, '').split(' ')[0]
+            const labelY = stripBottom + 12 + (idx % 3) * 10
             return <g key={det.id} className="spectrum-feature-line" onPointerEnter={() => setHovered(`${det.name} (${det.type}) · λ = ${det.observed_wavelength_um.toFixed(3)} µm (${Math.round(det.observed_wavelength_um * 1000)} nm) · SNR = ${det.snr.toFixed(1)}σ · Contrast ${det.contrast_pct.toFixed(1)}%`)} onPointerLeave={() => setHovered(null)}>
               <title>{`${det.name} · ${det.observed_wavelength_um.toFixed(3)} µm`}</title>
               <line x1={cx} x2={cx} y1={stripBottom + 2} y2={stopY} stroke="rgba(255,255,255,0.82)" strokeWidth={1.35} strokeDasharray={dash} />
