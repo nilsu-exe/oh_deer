@@ -158,29 +158,33 @@ export function SpectrumPanel({ data }: { data: SpectrumResponse }) {
 
       // Carve sharp Voigt/Gaussian profiles at detected spectral features + high-frequency fine absorption lines
       let mod = 1.0
+      let barMod = 1.0
+      const extraDepth = anchorPoints.length >= 50 ? 0.18 : 0.85
       for (const det of detections) {
         const center = det.observed_wavelength_um
-        const sigma = Math.max(0.014, center * 0.0065)
+        const sigma = Math.max(0.012, center * 0.0055)
         const dist = (wl - center) / sigma
         if (Math.abs(dist) < 4.5) {
-          const profile = Math.exp(-0.5 * dist * dist) + 0.18 / (1 + dist * dist)
-          const strength = Math.min(0.62, Math.max(0.24, Math.abs(det.contrast_pct) / 100))
+          const profile = Math.exp(-0.5 * dist * dist) + 0.15 / (1 + dist * dist)
+          const strength = Math.min(0.60, Math.max(0.22, Math.abs(det.contrast_pct) / 100))
           if (det.type === 'emission') {
-            mod *= 1 + strength * 0.85 * profile
+            mod *= 1 + strength * extraDepth * profile
+            barMod *= 1 + strength * 0.85 * profile
           } else {
-            mod *= Math.max(0.18, 1 - strength * profile)
+            mod *= Math.max(0.22, 1 - strength * extraDepth * profile)
+            barMod *= Math.max(0.18, 1 - strength * 0.95 * profile)
           }
         }
       }
       // Subtle high-res rotational-vibrational fine lines (more prominent at shorter wavelengths like F/G/K/M/Y spectra)
       const fineEnv = Math.exp(-0.45 * (wl - minW))
       const fineRipple = 1 - fineEnv * (
-        0.065 * Math.pow(Math.sin(wl * 137.0), 8) +
-        0.05 * Math.pow(Math.cos(wl * 211.0 + 0.7), 10) +
-        0.04 * Math.pow(Math.sin(wl * 89.0 + 1.4), 6)
+        0.045 * Math.pow(Math.sin(wl * 137.0), 8) +
+        0.035 * Math.pow(Math.cos(wl * 211.0 + 0.7), 10) +
+        0.025 * Math.pow(Math.sin(wl * 89.0 + 1.4), 6)
       )
       const flux = Math.max(0, baseFlux * mod * fineRipple)
-      const transmission = Math.max(0.08, Math.min(1.35, mod * fineRipple))
+      const transmission = Math.max(0.08, Math.min(1.35, barMod * fineRipple))
       samples.push({ wl, flux, transmission })
     }
   }
@@ -285,7 +289,7 @@ export function SpectrumPanel({ data }: { data: SpectrumResponse }) {
           {/* Subtle horizontal grid */}
           {yTicks.map((tick, i) => <g key={i}>
             <line x1={plotLeft} x2={plotRight} y1={y(tick)} y2={y(tick)} className="chart-grid" />
-            <text x={plotLeft - 8} y={y(tick) + 3} textAnchor="end">{tick.toFixed(2)}</text>
+            <text x={plotLeft - 8} y={y(tick) + 3} textAnchor="end">{maxF < 0.05 ? tick.toFixed(4) : maxF < 0.5 ? tick.toFixed(2) : tick.toFixed(1)}</text>
           </g>)}
 
           {/* 2. Dashed / Dotted / Dash-Dot Connector Lines from Barcode Strip down to the Flux Curve */}
@@ -367,7 +371,7 @@ export function SpectrumPanel({ data }: { data: SpectrumResponse }) {
 
           {xTicks.map(tick => <g key={tick}>
             <line x1={x(tick)} x2={x(tick)} y1={plotBottom} y2={plotBottom + 5} stroke="rgba(255,255,255,0.65)" strokeWidth={1.1} />
-            <text x={x(tick)} y={plotBottom + 18} textAnchor="middle">{tick.toFixed(1)} µm ({Math.round(tick * 1000)} nm)</text>
+            <text x={x(tick)} y={plotBottom + 18} textAnchor="middle">{tick.toFixed(1)} µm</text>
           </g>)}
 
           <text transform={`translate(18 ${(plotTop + plotBottom) / 2}) rotate(-90)`} textAnchor="middle" className="spectrum-axis-label">Flux (Jy)</text>

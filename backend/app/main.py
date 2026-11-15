@@ -1,6 +1,7 @@
 """FastAPI app. Run from backend/ with uvicorn app.main:app --reload."""
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 import sys
 from pathlib import Path
 from typing import Annotated, List, Literal, Optional, Union
@@ -14,13 +15,20 @@ from pydantic import BaseModel, ConfigDict, Field
 if __package__ in (None, ""):
     # Support python app/main.py as well as importing app.main.
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-    from app import config, diagnostics, discovery_mirror, irsa_client, overlays, pipeline, processing, spectral_id, targets
+    from app import config, demo_seed, diagnostics, discovery_mirror, irsa_client, overlays, pipeline, processing, spectral_id, targets
 else:
-    from . import config, diagnostics, discovery_mirror, irsa_client, overlays, pipeline, processing, spectral_id, targets
+    from . import config, demo_seed, diagnostics, discovery_mirror, irsa_client, overlays, pipeline, processing, spectral_id, targets
 
 diagnostics.configure_logging()
 
-app = FastAPI(title="SPHEREx sky flipbook API", version="0.1.0")
+
+@asynccontextmanager
+async def _lifespan(app: FastAPI):
+    demo_seed.ensure_seeded()
+    yield
+
+
+app = FastAPI(title="SPHEREx sky flipbook API", version="0.1.0", lifespan=_lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 app.add_middleware(diagnostics.RequestLoggingMiddleware)
 
@@ -42,6 +50,7 @@ async def mirror_unavailable(request, exc):
 def _center(ra: Optional[Union[float, str]], dec: Optional[Union[float, str]],
             target: Optional[str], epoch: Optional[float]):
     """Accept ra+dec (degrees or sexagesimal HMS/DMS) or a target name/coord string."""
+    demo_seed.ensure_seeded()
     if target:
         try:
             with diagnostics.stage(targets.log, "resolution", f"target={target} epoch={epoch}"):
