@@ -279,19 +279,6 @@ def pixel_to_sky(ra: Union[float, str], dec: Union[float, str], fov: float = 0.1
     ra_f, dec_f = float(ra_out), float(dec_out)
     return {"ra": ra_f, "dec": dec_f, **targets.format_sexagesimal(ra_f, dec_f)}
 
-
-# Serve the built React/Vite UI (ui/dist) if present, falling back to frontend/.
-_repo_root = Path(__file__).resolve().parent.parent.parent
-for _candidate in (_repo_root / "ui" / "dist", _repo_root / "frontend"):
-    if (_candidate / "index.html").is_file() or _candidate.is_dir():
-        if (_candidate / "index.html").is_file():
-            app.mount("/", StaticFiles(directory=_candidate, html=True), name="frontend")
-            break
-else:
-    if (_repo_root / "frontend").is_dir():
-        app.mount("/", StaticFiles(directory=_repo_root / "frontend", html=True), name="frontend")
-
-
 if __name__ == "__main__":
     import uvicorn
 
