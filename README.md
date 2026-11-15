@@ -54,6 +54,13 @@ uvicorn app.main:app --reload   # http://127.0.0.1:8000  (API docs at /docs)
 
 If a `frontend/` folder sits next to `backend/`, the server serves it at `/`. Before a demo, warm the cache with `python scripts/prefetch_targets.py`.
 
+## Docker deployment
+
+See [deployment instructions](deploy/README.md) for Docker Compose, migration of
+the existing cache snapshot to `/var/lib/oh-deer/cache`, static bundle hosting,
+and Cloudflare origin TLS. The cache is a host bind mount and survives container
+removal. Nginx handles HTTPS and per-visitor API rate limiting.
+
 ## Project structure
 
 ```

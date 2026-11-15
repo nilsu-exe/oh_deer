@@ -3,3 +3,6 @@ ui/dist/
 ui/.vite/
 *.tsbuildinfo
 .DS_Store
+.env
+*.pem
+*.key

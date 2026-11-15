@@ -1,0 +1,40 @@
+services:
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    init: true
+    environment:
+      SPHEREX_CACHE_DIR: /app/.cache
+      SPHEREX_DISCOVERY_MIRROR: /app/.cache/discovery.sqlite3
+      SPHEREX_DISCOVERY_MODE: ${SPHEREX_DISCOVERY_MODE:-auto}
+      SPHEREX_MAX_PARALLEL: ${SPHEREX_MAX_PARALLEL:-10}
+    volumes:
+      - type: bind
+        source: ${CACHE_HOST_PATH:-/var/lib/oh-deer/cache}
+        target: /app/.cache
+        bind:
+          create_host_path: false
+    # Only Nginx can reach this port; do not publish it to the host.
+    expose:
+      - "8000"
+    stop_grace_period: 60s
+
+  nginx:
+    image: nginx:1.28-alpine
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./deploy/cloudflare-real-ip.conf:/etc/nginx/cloudflare-real-ip.conf:ro
+      - ${STATIC_BUNDLE_PATH:-./deploy/static}:/usr/share/nginx/html:ro
+      - type: bind
+        source: ${ORIGIN_CERTS_PATH:-/etc/oh-deer/certs}
+        target: /etc/nginx/certs
+        read_only: true
+        bind:
+          create_host_path: false
