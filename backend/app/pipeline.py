@@ -9,6 +9,7 @@ import numpy as np
 from astropy.time import Time
 
 from . import config, diagnostics, irsa_client, processing, spectral_id
+from .render_cache import cached_render
 
 log = logging.getLogger(__name__)
 
@@ -174,6 +175,17 @@ def build_frames(ra: float, dec: float, fov: float, det: int, *,
     with diagnostics.stage(log, "discovery", f"ra={ra:.6f} dec={dec:.6f} detector={det}"):
         images = irsa_client.query_images(ra, dec, det)
     discovery = getattr(images, "discovery", None)
+    result = _render_frames(
+        list(images), ra, dec, fov, det, bin_days=bin_days, sky=sky,
+        subtract=subtract, mask=mask, scale=scale, max_frames=max_frames, stretch=stretch,
+    )
+    result["discovery"] = discovery
+    return result
+
+
+@cached_render
+def _render_frames(images, ra, dec, fov, det, *, bin_days, sky, subtract,
+                   mask, scale, max_frames, stretch):
     n_found = len(images)
     images = _subsample(images, max_frames)
     log.info("frames selected found=%d requested=%d max_frames=%d", n_found, len(images), max_frames)
@@ -273,7 +285,6 @@ def build_frames(ra: float, dec: float, fov: float, det: int, *,
         "frames": out_frames,
         "composites": composites,
         "candidates": candidates,
-        "discovery": discovery,
     }
 
 
@@ -369,6 +380,17 @@ def build_detector_stacks(
     with diagnostics.stage(log, "discovery", f"ra={ra:.6f} dec={dec:.6f} detectors={target_dets}"):
         all_images = irsa_client.query_selected_images(ra, dec, target_dets)
     discovery = getattr(all_images, "discovery", None)
+    result = _render_detector_stacks(
+        list(all_images), ra, dec, fov, target_dets=target_dets, sky=sky,
+        mask=mask, scale=scale, max_per_det=max_per_det, stretch=stretch,
+    )
+    result["discovery"] = discovery
+    return result
+
+
+@cached_render
+def _render_detector_stacks(all_images, ra, dec, fov, *, target_dets, sky,
+                            mask, scale, max_per_det, stretch):
     n_found = len(all_images)
 
     by_det: Dict[int, List[Dict[str, Any]]] = {d: [] for d in target_dets}
@@ -552,5 +574,4 @@ def build_detector_stacks(
             "green_mid_nir_dets": g_dets,
             "red_long_nir_dets": r_dets,
         },
-        "discovery": discovery,
     }

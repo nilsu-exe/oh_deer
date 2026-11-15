@@ -193,3 +193,29 @@ an outage for already mirrored coordinates/detectors.
 Any host that runs Python: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`. Set
 `SPHEREX_CACHE_DIR` to a persistent disk if the host has one. If a `frontend/` folder sits next to
 `backend/`, the API serves it at `/` so one deployment does everything.
+
+## Persistent rendered image cache
+
+`/api/frames` and `/api/detectors` persist their complete rendered results in
+`SPHEREX_CACHE_DIR/render/` (normally `.cache/render`). The JSON files contain
+all base64 PNGs: individual frames, coadds, maximum projections, epoch differences,
+RGB and bichrome composites, along with their matching metadata and candidates.
+A hit skips cutout downloads, FITS parsing, reprojection, stacking, and PNG encoding.
+The first request for a new combination still performs that work.
+
+Keys include the resolved coordinates, every rendering option, source exposure
+metadata, rendering code fingerprint, and cache version. Discovery still runs
+before lookup so new exposures or processing URLs select a new render, and
+response discovery age/source metadata stays current. Successful results have no
+expiry and survive service restarts. Partial results are saved too, but retried
+after 60 seconds so temporary failures do not permanently hide images. Writes
+are atomic; corrupt entries are rebuilt. Concurrent identical requests share one
+render within the configured single API worker.
+
+The Docker cache bind mount already persists this directory at
+`/var/lib/oh-deer/cache/render`; UID/GID `10001:10001` needs write access. No extra
+mount is required. Entries are not automatically evicted: monitor disk usage and
+remove obsolete render files when needed (raw cutouts and discovery snapshots
+are independent). Bump `VERSION` in `app/render_cache.py` when dependency updates
+change rendering behavior; pipeline/processing/config source changes invalidate
+automatically. Cache hit/miss messages appear in backend logs.

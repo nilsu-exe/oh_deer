@@ -196,3 +196,12 @@ an explanatory `detail` and `request_id`, without contacting TAP.
 The `X-Request-ID` response header matches the request ID in the backend logs.
 Discovery errors return `{ "detail": "IRSA image discovery failed...", "request_id": "..." }`.
 Individual cutout failures still return a partial flipbook with `counts.failed`.
+
+## Render reuse
+
+`/api/frames` and `/api/detectors` retain all rendered images and associated
+metadata in the persistent `.cache/render` directory. Response schemas are
+unchanged. Identical rendering options and source exposures reuse the stored
+result without repeating FITS processing. Discovery is checked on each request;
+new exposures invalidate the render and discovery status stays current. Partial
+results may be reused for up to 60 seconds before failed exposures are retried.

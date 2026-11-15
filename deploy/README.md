@@ -158,3 +158,14 @@ for `/api/*` rather than applying a cache-everything rule. Nginx allows 300 seco
 between upstream reads for cold requests, but Cloudflare's own proxy timeout can
 still expire sooner. Warm the cache before demos; increasing Nginx's timeout does
 not extend Cloudflare's timeout.
+
+## Render cache on small hosts
+
+The backend saves all frame and detector image responses under
+`/app/.cache/render`, mapped to `/var/lib/oh-deer/cache/render` on the host.
+Repeated requests with the same rendering parameters and source exposures reuse
+those results, skipping reprojection and PNG rendering. Rebuild/recreate the
+backend to deploy this feature: `docker compose up -d --build backend`.
+No additional volume is needed. The first render still consumes CPU; subsequent
+hits are logged as `render cache hit`. Keep the cache writable by UID/GID 10001
+and monitor disk space, since successful renders are retained without eviction.
