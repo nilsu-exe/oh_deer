@@ -270,6 +270,69 @@ def encode_diverging_png(diff_arr: np.ndarray, p_abs: float = 99.5) -> str:
     return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
 
 
+def normalize_array(arr: np.ndarray, stretch: str = "asinh",
+                    p_lo: float = 1.0, p_hi: float = 99.5) -> np.ndarray:
+    """Normalize a 2D image array to [0, 1] using finite percentiles, preserving NaNs."""
+    out = np.full(arr.shape, np.nan, dtype=np.float32)
+    finite = arr[np.isfinite(arr)]
+    if finite.size == 0:
+        return out
+    lo, hi = np.percentile(finite, [p_lo, p_hi])
+    if hi <= lo:
+        hi = lo + 1e-9
+    norm = np.clip((arr - lo) / (hi - lo), 0.0, 1.0)
+    if stretch == "asinh":
+        norm = np.arcsinh(norm * 10.0) / np.arcsinh(10.0)
+    valid = np.isfinite(arr)
+    out[valid] = norm[valid].astype(np.float32)
+    return out
+
+
+def encode_rgb_png(
+    r_arr: Optional[np.ndarray],
+    g_arr: Optional[np.ndarray],
+    b_arr: Optional[np.ndarray],
+    stretch: str = "asinh",
+    p_lo: float = 1.0,
+    p_hi: float = 99.5,
+) -> Optional[str]:
+    """Encode 3 infrared waveband arrays into a False-Color RGB PNG data URL.
+
+    Typically:
+    - Blue  (`b_arr`): Short-wave NIR (Detectors 1-2, 0.75-1.62 um)
+    - Green (`g_arr`): Mid-wave NIR   (Detectors 3-4, 1.63-3.82 um)
+    - Red   (`r_arr`): Long-wave NIR  (Detectors 5-6, 3.83-5.00 um)
+    Cold brown dwarfs (like WISE 0855) and dusty protostars glow vivid red/amber,
+    while normal main-sequence stars appear blue-white.
+    """
+    present = [a for a in (r_arr, g_arr, b_arr) if a is not None]
+    if not present:
+        return None
+    shape = present[0].shape
+
+    def _chan(a: Optional[np.ndarray]) -> Tuple[np.ndarray, np.ndarray]:
+        if a is None:
+            return np.zeros(shape, dtype=np.float32), np.zeros(shape, dtype=bool)
+        norm = normalize_array(a, stretch=stretch, p_lo=p_lo, p_hi=p_hi)
+        valid = np.isfinite(norm)
+        return np.where(valid, norm, 0.0).astype(np.float32), valid
+
+    r_norm, r_ok = _chan(r_arr)
+    g_norm, g_ok = _chan(g_arr)
+    b_norm, b_ok = _chan(b_arr)
+    alpha = r_ok | g_ok | b_ok
+
+    rgba = np.dstack([
+        (r_norm * 255.0).astype(np.uint8),
+        (g_norm * 255.0).astype(np.uint8),
+        (b_norm * 255.0).astype(np.uint8),
+        np.where(alpha, 255, 0).astype(np.uint8),
+    ])
+    buf = io.BytesIO()
+    Image.fromarray(np.flipud(rgba), mode="RGBA").save(buf, format="PNG", optimize=True)
+    return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
+
+
 # ----------------------------------------- Epoch stacking & candidate hunt ---
 
 def split_epochs(frames: Sequence[Dict[str, Any]]) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:

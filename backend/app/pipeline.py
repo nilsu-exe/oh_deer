@@ -338,3 +338,176 @@ def build_spectrum(ra: float, dec: float, *, size: float = 0.04, aperture_px: fl
         "notes": ("flux_jy = aperture sum minus local median background; no aperture correction. "
                   "Quick-look only, not calibrated point-source photometry."),
     }
+
+
+DETECTOR_BANDS: Dict[int, Tuple[float, float, str]] = {
+    1: (0.75, 1.09, "Short-Wave NIR (0.75–1.09 µm)"),
+    2: (1.10, 1.62, "J/H-Band NIR (1.10–1.62 µm)"),
+    3: (1.63, 2.41, "H/K-Band NIR (1.63–2.41 µm)"),
+    4: (2.42, 3.82, "H2O Ice / PAH / CH4 Band (2.42–3.82 µm)"),
+    5: (3.83, 4.41, "CO2 Ice / Thermal NIR (3.83–4.41 µm)"),
+    6: (4.42, 5.00, "CO / Mid-IR Thermal (4.42–5.00 µm)"),
+}
+
+
+def build_detector_stacks(
+    ra: float,
+    dec: float,
+    fov: float = 0.1,
+    *,
+    dets: Optional[List[int]] = None,
+    sky: str = "median",
+    mask: bool = True,
+    scale: float = config.PIXEL_SCALE_ARCSEC,
+    max_per_det: int = 30,
+    stretch: str = "asinh",
+) -> Dict[str, Any]:
+    """Separately co-add all exposures for each of the 6 SPHEREx detector arrays (D1..D6),
+    and combine them into an All-Detector Deep Stack + False-Color Infrared RGB composite.
+    """
+    target_dets = sorted(set(dets)) if dets else [1, 2, 3, 4, 5, 6]
+    with diagnostics.stage(log, "discovery", f"ra={ra:.6f} dec={dec:.6f} detectors={target_dets}"):
+        all_images = irsa_client.query_selected_images(ra, dec, target_dets)
+    discovery = getattr(all_images, "discovery", None)
+    n_found = len(all_images)
+
+    by_det: Dict[int, List[Dict[str, Any]]] = {d: [] for d in target_dets}
+    for m in all_images:
+        d = m.get("det")
+        if d in by_det:
+            by_det[d].append(m)
+
+    selected: List[Dict[str, Any]] = []
+    for d in target_dets:
+        selected.extend(_subsample(by_det[d], max_per_det))
+
+    with diagnostics.stage(log, "downloads", f"requested={len(selected)}"):
+        fetched = irsa_client.fetch_all(selected, ra, dec, fov * config.CUTOUT_PAD)
+
+    grid_wcs, shape = processing.make_grid(ra, dec, fov, scale)
+    per_det_frames: Dict[int, List[Dict[str, Any]]] = {d: [] for d in target_dets}
+    failed = 0
+
+    with diagnostics.stage(log, "detector stacking", f"cutouts={len(fetched)} grid={shape}"):
+        for meta, content in fetched:
+            if content is None:
+                failed += 1
+                continue
+            d = meta.get("det")
+            if d not in per_det_frames:
+                continue
+            try:
+                c = processing.parse_cutout(content, meta)
+                img, flag_frac = processing.clean_image(c, sky=sky, mask=mask)
+                flag_breakdown = processing.summarize_flags(c.flags)
+                arr = processing.reproject_to_grid(img, c.wcs, grid_wcs, shape)
+            except Exception as exc:
+                log.warning("detector frame failed (%s): %s", meta.get("base_url"), exc)
+                failed += 1
+                continue
+            per_det_frames[d].append({
+                "mjd": meta.get("mjd"),
+                "flag_fraction": flag_frac,
+                "flags_breakdown": flag_breakdown,
+                "array": arr,
+            })
+
+    det_summaries: List[Dict[str, Any]] = []
+    det_coadds: Dict[int, np.ndarray] = {}
+    for d in target_dets:
+        lo_um, hi_um, label = DETECTOR_BANDS.get(d, (0.75, 5.0, f"Detector {d}"))
+        flist = per_det_frames[d]
+        if not flist:
+            det_summaries.append({
+                "det": d,
+                "band_label": label,
+                "wavelength_range_um": [lo_um, hi_um],
+                "n_found": len(by_det[d]),
+                "n_stacked": 0,
+                "mjd_range": None,
+                "mean_flag_fraction": None,
+                "flags_breakdown": {},
+                "coadd_image": None,
+                "max_projection_image": None,
+            })
+            continue
+        stack = np.stack([f["array"] for f in flist])
+        coadd_arr = _nanmean(stack)
+        max_arr = _nanmax(stack)
+        det_coadds[d] = coadd_arr
+        coadd_png = processing.encode_frames([coadd_arr], stretch=stretch)[0]
+        max_png = processing.encode_frames([max_arr], stretch=stretch)[0]
+        mjds = [float(f["mjd"]) for f in flist if f.get("mjd") is not None]
+        det_summaries.append({
+            "det": d,
+            "band_label": label,
+            "wavelength_range_um": [lo_um, hi_um],
+            "n_found": len(by_det[d]),
+            "n_stacked": len(flist),
+            "mjd_range": [min(mjds), max(mjds)] if mjds else None,
+            "mean_flag_fraction": round(float(np.mean([f["flag_fraction"] for f in flist])), 4),
+            "flags_breakdown": _merge_flag_breakdowns(flist),
+            "coadd_image": coadd_png,
+            "max_projection_image": max_png,
+        })
+
+    # Combine normalized per-detector stacks into an all-detector deep white-light image
+    all_coadd_png = None
+    if det_coadds:
+        norm_stacks = [processing.normalize_array(arr, stretch="linear") for arr in det_coadds.values()]
+        deep_arr = _nanmean(np.stack(norm_stacks))
+        all_coadd_png = processing.encode_frames([deep_arr], stretch=stretch)[0]
+
+    # Build False-Color Infrared RGB composite:
+    # Blue = D1/D2 (0.75-1.62 um), Green = D3/D4 (1.63-3.82 um), Red = D5/D6 (3.83-5.00 um)
+    def _group_mean(group_dets: List[int]) -> Tuple[Optional[np.ndarray], List[int]]:
+        used = [d for d in group_dets if d in det_coadds]
+        if not used:
+            return None, []
+        return _nanmean(np.stack([det_coadds[d] for d in used])), used
+
+    b_arr, b_dets = _group_mean([1, 2])
+    g_arr, g_dets = _group_mean([3, 4])
+    r_arr, r_dets = _group_mean([5, 6])
+
+    # If fewer than 2 standard bands are populated but >= 2 detectors exist, spread them across B/G/R
+    populated_groups = sum(x is not None for x in (r_arr, g_arr, b_arr))
+    avail_sorted = sorted(det_coadds.keys())
+    if populated_groups < 2 and len(avail_sorted) >= 2:
+        b_dets = [avail_sorted[0]]
+        b_arr = det_coadds[b_dets[0]]
+        r_dets = [avail_sorted[-1]]
+        r_arr = det_coadds[r_dets[0]]
+        mid = avail_sorted[len(avail_sorted) // 2]
+        g_dets = [mid]
+        g_arr = det_coadds[mid]
+
+    rgb_png = processing.encode_rgb_png(r_arr, g_arr, b_arr, stretch=stretch)
+    n = shape[0]
+    return {
+        "query": {
+            "ra": ra, "dec": dec, "fov_deg": fov, "dets": target_dets,
+            "sky": sky, "mask": mask, "max_per_det": max_per_det, "stretch": stretch,
+        },
+        "grid": {
+            "n_pixels": n, "pixel_scale_arcsec": scale,
+            "fov_deg": n * scale / 3600.0,
+            "center": {"ra": ra, "dec": dec},
+            "orientation": "north up, east left", "origin": "top-left",
+        },
+        "counts": {
+            "images_found": n_found,
+            "requested": len(selected),
+            "failed": failed,
+            "detectors_with_data": len(det_coadds),
+        },
+        "detectors": det_summaries,
+        "all_detectors_coadd_image": all_coadd_png,
+        "false_color_rgb_image": rgb_png,
+        "rgb_channels": {
+            "blue_short_nir_dets": b_dets,
+            "green_mid_nir_dets": g_dets,
+            "red_long_nir_dets": r_dets,
+        },
+        "discovery": discovery,
+    }

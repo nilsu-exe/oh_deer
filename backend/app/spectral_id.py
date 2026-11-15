@@ -675,13 +675,204 @@ def compute_cosmology(z: float, z_err: float = 0.0) -> Dict[str, Any]:
 
 
 # ----------------------------------------------------------------------------
-# 5. Unified entry point
+# 5. Continuum-Normalized Light Curve & Variability Analysis (RW Aur, R Dra)
+# ----------------------------------------------------------------------------
+
+def analyze_variability(
+    points: Iterable[Dict[str, Any]],
+    binned_102: Optional[Sequence[Dict[str, Any]]] = None,
+    *,
+    bin_days: float = 5.0,
+) -> Dict[str, Any]:
+    """Extract a wavelength-detrended light curve and variability metrics from SPHEREx exposures.
+
+    Because SPHEREx samples different wavelengths on each exposure, raw flux vs. time mixes
+    spectral slope with temporal variability. We divide each exposure's flux by the object's
+    time-averaged 102-channel spectral template at that wavelength, yielding a clean relative
+    light curve (`relative_flux`, `delta_mag`) suitable for variable stars like RW Aurigae
+    and R Draconis.
+    """
+    pts_list = list(points) if not isinstance(points, list) else points
+    timed: List[Dict[str, Any]] = []
+    for p in pts_list:
+        if not isinstance(p, dict):
+            continue
+        mjd = p.get("mjd")
+        lam = p.get("wavelength_um")
+        fl = p.get("flux_jy")
+        if mjd is None or lam is None or fl is None:
+            continue
+        try:
+            mjd_f = float(mjd)
+            lam_f = float(lam)
+            fl_f = float(fl)
+            er_f = float(p.get("err_jy")) if p.get("err_jy") is not None else float("nan")
+        except (TypeError, ValueError):
+            continue
+        if math.isfinite(mjd_f) and math.isfinite(lam_f) and lam_f > 0 and math.isfinite(fl_f) and fl_f > 0:
+            timed.append({
+                "mjd": mjd_f,
+                "date": p.get("date"),
+                "det": p.get("det"),
+                "wavelength_um": lam_f,
+                "flux_jy": fl_f,
+                "err_jy": er_f if (math.isfinite(er_f) and er_f > 0) else abs(fl_f) * 0.05,
+            })
+
+    if len(timed) < 2:
+        return {
+            "n_points": len(timed),
+            "is_variable": False,
+            "variability_confidence": "None",
+            "variability_type": "Insufficient Time Coverage",
+            "reduced_chi2": None,
+            "fractional_rms_pct": None,
+            "peak_to_peak_pct": None,
+            "delta_mag_range": None,
+            "epoch_trend_pct": None,
+            "mjd_span_days": None,
+            "lightcurve": [],
+            "epoch_bins": [],
+        }
+
+    if binned_102 is None:
+        binned_102 = bin_spectrum_102(pts_list)
+
+    ref_pairs = sorted(
+        [(float(b["wavelength_um"]), float(b["flux_jy"]))
+         for b in binned_102
+         if b.get("wavelength_um") is not None and b.get("flux_jy") is not None and float(b["flux_jy"]) > 0],
+        key=lambda x: x[0],
+    )
+    if len(ref_pairs) >= 2:
+        wl_ref = np.array([x[0] for x in ref_pairs], dtype=float)
+        fl_ref = np.array([x[1] for x in ref_pairs], dtype=float)
+    else:
+        med_flux = float(np.median([t["flux_jy"] for t in timed]))
+        wl_ref = np.array([0.5, 6.0], dtype=float)
+        fl_ref = np.array([med_flux, med_flux], dtype=float)
+
+    timed.sort(key=lambda t: t["mjd"])
+    raw_rel = []
+    raw_err = []
+    for t in timed:
+        ref_val = max(float(np.interp(t["wavelength_um"], wl_ref, fl_ref)), 1e-12)
+        r = t["flux_jy"] / ref_val
+        re = max(t["err_jy"] / ref_val, 0.02 * r)
+        raw_rel.append(r)
+        raw_err.append(re)
+
+    med_rel = max(float(np.median(raw_rel)), 1e-12)
+    r_arr = np.array(raw_rel, dtype=float) / med_rel
+    re_arr = np.array(raw_err, dtype=float) / med_rel
+
+    lc: List[Dict[str, Any]] = []
+    dm_list: List[float] = []
+    for t, r_val, re_val in zip(timed, r_arr, re_arr):
+        r_safe = max(float(r_val), 1e-6)
+        dm = -2.5 * math.log10(r_safe)
+        dm_err = (2.5 / math.log(10.0)) * (float(re_val) / r_safe)
+        dm_list.append(dm)
+        lc.append({
+            "mjd": _num(t["mjd"]),
+            "date": t.get("date"),
+            "det": t.get("det"),
+            "wavelength_um": _num(t["wavelength_um"]),
+            "flux_jy": _num(t["flux_jy"]),
+            "err_jy": _num(t["err_jy"]),
+            "relative_flux": _num(r_val),
+            "relative_err": _num(re_val),
+            "delta_mag": _num(dm),
+            "mag_err": _num(dm_err),
+        })
+
+    w = 1.0 / np.maximum(re_arr, 1e-6) ** 2
+    w_mean = float(np.sum(w * r_arr) / np.sum(w))
+    chi2_red = float(np.sum(w * (r_arr - w_mean) ** 2) / max(1, len(r_arr) - 1))
+    rms_pct = float(np.std(r_arr, ddof=1) / max(w_mean, 1e-6) * 100.0)
+    p2p_pct = float((np.max(r_arr) - np.min(r_arr)) / max(w_mean, 1e-6) * 100.0)
+    dm_range = float(max(dm_list) - min(dm_list))
+    mjd_span = float(timed[-1]["mjd"] - timed[0]["mjd"])
+
+    # Split into early (Epoch 1) vs late (Epoch 2) by largest MJD gap (or midpoint)
+    mjds = np.array([t["mjd"] for t in timed], dtype=float)
+    gaps = np.diff(mjds)
+    if len(gaps) > 0 and float(np.max(gaps)) > 1.5 * float(np.median(gaps) + 1e-6):
+        split_idx = int(np.argmax(gaps)) + 1
+    else:
+        split_idx = len(timed) // 2
+    split_idx = max(1, min(len(timed) - 1, split_idx))
+    ep1_mean = float(np.mean(r_arr[:split_idx]))
+    ep2_mean = float(np.mean(r_arr[split_idx:]))
+    epoch_trend_pct = (ep2_mean - ep1_mean) / max(ep1_mean, 1e-6) * 100.0
+
+    # Time-binned epoch points for clean lightcurve plotting
+    epoch_bins: List[Dict[str, Any]] = []
+    step = max(float(bin_days), 0.1)
+    t0 = float(mjds[0])
+    groups: Dict[int, List[int]] = {}
+    for idx, m in enumerate(mjds):
+        groups.setdefault(int((m - t0) // step), []).append(idx)
+    for _, idxs in sorted(groups.items()):
+        sub_r = r_arr[idxs]
+        sub_w = w[idxs]
+        b_flux = float(np.sum(sub_w * sub_r) / np.sum(sub_w))
+        b_err = float(1.0 / math.sqrt(float(np.sum(sub_w))))
+        b_safe = max(b_flux, 1e-6)
+        b_dm = -2.5 * math.log10(b_safe)
+        b_dm_err = (2.5 / math.log(10.0)) * (b_err / b_safe)
+        epoch_bins.append({
+            "mjd": _num(float(np.mean(mjds[idxs]))),
+            "date": timed[idxs[len(idxs) // 2]].get("date"),
+            "n_points": len(idxs),
+            "relative_flux": _num(b_flux),
+            "relative_err": _num(b_err),
+            "delta_mag": _num(b_dm),
+            "mag_err": _num(b_dm_err),
+        })
+
+    if chi2_red >= 5.0 and dm_range >= 0.35:
+        is_var = True
+        var_conf = "High"
+        var_type = "Large-Amplitude Variable Star (Mira / T Tauri Candidate)"
+    elif chi2_red >= 3.0 and p2p_pct >= 12.0:
+        is_var = True
+        var_conf = "Medium"
+        var_type = "Moderate Brightness Variable"
+    elif chi2_red >= 2.0 and p2p_pct >= 8.0:
+        is_var = True
+        var_conf = "Low"
+        var_type = "Low-Amplitude Variable Candidate"
+    else:
+        is_var = False
+        var_conf = "None"
+        var_type = "Stable / Non-Variable Source"
+
+    return {
+        "n_points": len(lc),
+        "is_variable": is_var,
+        "variability_confidence": var_conf,
+        "variability_type": var_type,
+        "reduced_chi2": _num(chi2_red),
+        "fractional_rms_pct": _num(rms_pct),
+        "peak_to_peak_pct": _num(p2p_pct),
+        "delta_mag_range": _num(dm_range),
+        "epoch_trend_pct": _num(epoch_trend_pct),
+        "mjd_span_days": _num(mjd_span),
+        "lightcurve": lc,
+        "epoch_bins": epoch_bins,
+    }
+
+
+# ----------------------------------------------------------------------------
+# 6. Unified entry point
 # ----------------------------------------------------------------------------
 
 def analyze_spectrum(points: Iterable[Dict[str, Any]], known_z: Optional[float] = None, *,
                      z_max: float = 3.5, dz: float = 0.002) -> Dict[str, Any]:
-    """Bin -> redshift (unless known_z) -> feature identification -> cosmology."""
-    binned = bin_spectrum_102(points)
+    """Bin -> redshift (unless known_z) -> feature identification -> cosmology -> variability."""
+    pts_list = list(points) if not isinstance(points, list) else points
+    binned = bin_spectrum_102(pts_list)
     wl, fl, er = _arrays(binned)
 
     if known_z is None:
@@ -698,13 +889,18 @@ def analyze_spectrum(points: Iterable[Dict[str, Any]], known_z: Optional[float] 
         rz["matched_lines"] = [d["name"] for d in detections if (d["snr"] or 0) >= SNR_REDSHIFT_LINE]
 
     cosmo = compute_cosmology(z, rz.get("z_err") or 0.0)
+    variability = analyze_variability(pts_list, binned)
+    summary = summarize(detections, cosmo["regime"])
+    if variability.get("is_variable") and cosmo["regime"] == "galactic":
+        summary = f"{summary} + Variable Source (Δm={variability['delta_mag_range']:.2f} mag)"
     return {
         "n_channels": len(binned),
         "binned_102": [{k: (_num(v) if isinstance(v, float) else v) for k, v in b.items()} for b in binned],
         "redshift": rz,
         "cosmology": cosmo,
         "detections": detections,
-        "summary_classification": summarize(detections, cosmo["regime"]),
+        "variability": variability,
+        "summary_classification": summary,
         "notes": ("Quick-look feature identification on uncalibrated aperture photometry; "
                   "S/N and depths are indicative only."),
     }

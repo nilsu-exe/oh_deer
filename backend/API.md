@@ -149,6 +149,16 @@ Notes:
 The reference feature library (rest wavelength, type, FWHM, continuum windows, category) and the
 102-channel grid.
 
+## `GET /api/detectors`: 6-Detector Separate Co-Adds + False-Color Infrared RGB
+
+Separately co-adds all exposures for each of the six SPHEREx detector arrays (`D1`..`D6`) to maximize signal-to-noise, builds an all-detector deep white-light stack (`all_detectors_coadd_image`), and combines short (`D1+D2`), mid (`D3+D4`), and long (`D5+D6`) infrared bands into a False-Color RGB PNG (`false_color_rgb_image`).
+
+Params: `ra`/`dec` or `target`, `epoch`, `fov` (0.1), `dets` (optional subset, default all 6), `sky` (`median`), `mask` (`true`), `scale` (6.15), `max_per_det` (30), `stretch` (`asinh`).
+
+## `GET /api/lightcurve`: Wavelength-Detrended Light Curve & Variability Analysis
+
+Extracts a continuum-normalized relative flux and differential magnitude (`delta_mag`) time series across exposures (solving the multi-wavelength cadence challenge for variable stars like **RW Aurigae** and **R Draconis**). Also included automatically inside `/api/spectrum` under `analysis.variability`.
+
 ## `GET /api/overlays`: Gaia DR3 & AllWISE catalog overlays
 
 Params: `ra`/`dec` or `target`, `fov` (0.1), `scale` (6.15), `epoch` (2026.0),

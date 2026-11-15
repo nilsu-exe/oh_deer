@@ -340,4 +340,85 @@ def test_gaia_and_wise_overlays(monkeypatch):
     assert ir_only["y"] == pytest.approx(29.0, abs=0.5)
 
 
+def test_variability_lightcurve_rw_aur_and_r_dra():
+    # Build multi-epoch exposures across wavelengths: Epoch 2 is 2.2x brighter than Epoch 1 (~0.86 mag)
+    var_pts = []
+    const_pts = []
+    for i, ch in enumerate(spectral_id.CHANNELS[:36]):
+        lam = ch["center_um"]
+        base_flux = 0.05 * (lam / 1.5) ** (-1.2)
+        # Epoch 1 (MJD ~ 60800)
+        var_pts.append({
+            "mjd": 60800.0 + (i % 5) * 0.5,
+            "date": "2025-05-05T00:00:00Z",
+            "det": ch["det"],
+            "wavelength_um": lam,
+            "flux_jy": base_flux * 0.70,
+            "err_jy": base_flux * 0.02,
+        })
+        # Epoch 2 (MJD ~ 60980): brightened by 2.2x
+        var_pts.append({
+            "mjd": 60980.0 + (i % 5) * 0.5,
+            "date": "2025-11-01T00:00:00Z",
+            "det": ch["det"],
+            "wavelength_um": lam,
+            "flux_jy": base_flux * 1.54,
+            "err_jy": base_flux * 0.02,
+        })
+        const_pts.append({
+            "mjd": 60800.0 + i * 2.0,
+            "date": "2025-05-05T00:00:00Z",
+            "det": ch["det"],
+            "wavelength_um": lam,
+            "flux_jy": base_flux,
+            "err_jy": base_flux * 0.03,
+        })
+
+    res_var = spectral_id.analyze_spectrum(var_pts, known_z=0.0)
+    v = res_var["variability"]
+    assert v["is_variable"] is True
+    assert v["variability_confidence"] == "High"
+    assert v["delta_mag_range"] == pytest.approx(2.5 * math.log10(1.54 / 0.70), abs=0.1)
+    assert v["epoch_trend_pct"] > 100.0
+    assert len(v["lightcurve"]) == len(var_pts)
+    assert len(v["epoch_bins"]) >= 2
+    assert "Variable Source" in res_var["summary_classification"]
+
+    res_const = spectral_id.analyze_spectrum(const_pts, known_z=0.0)
+    assert res_const["variability"]["is_variable"] is False
+    assert res_const["variability"]["variability_confidence"] == "None"
+
+
+def test_six_detector_stacks_and_false_color_rgb(monkeypatch):
+    ra0, dec0 = 133.79513, -7.245147
+    metas = []
+    contents = []
+    for det in range(1, 7):
+        meta = {
+            "base_url": f"https://example.invalid/d{det}.fits",
+            "mjd": 60800.0 + det,
+            "det": det,
+            "bandpass": f"SPHEREx-D{det}",
+        }
+        metas.append(meta)
+        contents.append(make_mef(ra0, dec0, ra0, dec0, rot_deg=5.0 * det, n=40))
+
+    monkeypatch.setattr(pipeline.irsa_client, "query_selected_images", lambda ra, dec, dets=None: metas)
+    monkeypatch.setattr(pipeline.irsa_client, "fetch_all", lambda images, ra, dec, size: list(zip(metas, contents)))
+
+    out = main.detector_stacks(target="wise0855", fov=0.1, max_per_det=10)
+    assert out["counts"]["detectors_with_data"] == 6
+    assert len(out["detectors"]) == 6
+    for d_info in out["detectors"]:
+        assert d_info["n_stacked"] == 1
+        assert d_info["coadd_image"].startswith("data:image/png;base64,")
+        assert d_info["max_projection_image"].startswith("data:image/png;base64,")
+    assert out["all_detectors_coadd_image"].startswith("data:image/png;base64,")
+    assert out["false_color_rgb_image"].startswith("data:image/png;base64,")
+    assert out["rgb_channels"]["blue_short_nir_dets"] == [1, 2]
+    assert out["rgb_channels"]["green_mid_nir_dets"] == [3, 4]
+    assert out["rgb_channels"]["red_long_nir_dets"] == [5, 6]
+
+
+
 
