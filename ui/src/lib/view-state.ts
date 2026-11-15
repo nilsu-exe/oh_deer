@@ -2,7 +2,7 @@ import { initialSelection, type Position, type Selection } from './api'
 import { readStrokes, type Stroke } from './annotations'
 import type { Camera } from './camera'
 
-export type ViewMode = 'flipbook' | 'detectors' | 'lightcurve'
+export type ViewMode = 'flipbook' | 'detectors' | 'spectrum' | 'lightcurve'
 export interface ViewState {
   selection: Selection
   detector: number
@@ -37,8 +37,8 @@ export function readViewState(url: URL): ViewState {
   const marks = new URLSearchParams(url.hash.slice(1)).get('marks')
   return {
     selection: initialSelection(params), detector: Math.round(number('det', 2, 1, 6)), fov: number('fov', 0.1, 0.005000001, 1),
-    view: option('view', ['flipbook', 'detectors', 'lightcurve'], 'flipbook'),
-    stack: option('stack', ['rgb', 'all', '1', '2', '3', '4', '5', '6'], 'rgb'),
+    view: option('view', ['flipbook', 'detectors', 'spectrum', 'lightcurve'], 'flipbook'),
+    stack: option('stack', ['rgb', 'diff', 'bichrome-sl', 'bichrome-sm', 'bichrome-ml', 'pair-b', 'pair-g', 'pair-r', 'all', '1', '2', '3', '4', '5', '6'], 'rgb'),
     projection: option('projection', ['coadd', 'max'], 'coadd'), maxPerDet: Math.round(number('max_per_det', 30, 1, 300)),
     stretch: option('stretch', ['asinh', 'linear'], 'asinh'), mask: params.get('mask') !== 'false',
     binDays: number('bin_days', 5, 0.1, 180), aperture: number('aperture', 1.5, 0.5, 5),

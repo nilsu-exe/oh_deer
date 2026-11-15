@@ -58,6 +58,7 @@ export interface DetectorStack {
   flags_breakdown: Record<string, number>
   coadd_image: string | null
   max_projection_image: string | null
+  epoch_diff_color_image?: string | null
 }
 
 export interface DetectorResponse {
@@ -66,7 +67,14 @@ export interface DetectorResponse {
   counts: { images_found: number; requested: number; failed: number; detectors_with_data: number }
   detectors: DetectorStack[]
   all_detectors_coadd_image: string | null
+  epoch_diff_color_image?: string | null
   false_color_rgb_image: string | null
+  blue_pair_image?: string | null
+  green_pair_image?: string | null
+  red_pair_image?: string | null
+  bichrome_short_long_image?: string | null
+  bichrome_short_mid_image?: string | null
+  bichrome_mid_long_image?: string | null
   rgb_channels: { blue_short_nir_dets: number[]; green_mid_nir_dets: number[]; red_long_nir_dets: number[] }
   discovery?: Discovery | null
 }
@@ -102,6 +110,79 @@ export interface LightcurveResponse {
   resolved: Position
   counts: { images_found: number; requested: number; failed: number; points: number }
   variability: Variability
+  discovery?: Discovery | null
+}
+
+export interface SpectrumPointItem {
+  wavelength_um: number
+  bandwidth_um?: number | null
+  flux_jy: number
+  err_jy: number
+  mjd?: number
+  date?: string
+  det?: number
+  aperture_flags?: string[]
+}
+
+export interface BinnedChannel {
+  channel: number
+  det: number
+  channel_center_um: number
+  wavelength_um: number
+  flux_jy: number
+  err_jy: number
+  n_exposures: number
+}
+
+export interface SpectralDetection {
+  id: string
+  name: string
+  type: 'absorption' | 'emission'
+  category: string
+  rest_wavelength_um: number
+  observed_wavelength_um: number
+  z: number
+  continuum_flux_jy: number
+  observed_flux_jy: number
+  contrast_pct: number
+  optical_depth_tau: number
+  equivalent_width_um: number | null
+  snr: number
+  confidence: string
+}
+
+export interface SpectrumAnalysis {
+  n_channels: number
+  binned_102: BinnedChannel[]
+  redshift: {
+    z: number
+    z_err: number | null
+    confidence: string
+    regime: string
+    matched_lines: string[]
+    method: string
+  }
+  cosmology: {
+    regime: string
+    is_extragalactic: boolean
+    redshift_z: number
+    recession_velocity_kms: number | null
+    luminosity_distance_mpc: number | null
+    luminosity_distance_gly: number | null
+    lookback_time_gyr: number | null
+    note: string
+  }
+  detections: SpectralDetection[]
+  variability?: Variability
+  summary_classification: string
+  error?: string
+}
+
+export interface SpectrumResponse {
+  resolved: Position
+  counts: { images_found: number; requested: number; failed: number; points: number }
+  points: SpectrumPointItem[]
+  analysis: SpectrumAnalysis
   discovery?: Discovery | null
 }
 

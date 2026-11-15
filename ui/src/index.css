@@ -253,6 +253,9 @@
 .chart-scroll { overflow-x: auto; scrollbar-width: thin; }
 .chart-scroll-hint { display: none; }
 .lightcurve-chart text { fill: var(--muted-foreground); font-size: 10px; font-family: var(--font-mono); }
+.lightcurve-chart .spectrum-main-title { fill: var(--foreground); font-size: 13px; font-family: var(--font-sans); font-weight: 500; }
+.lightcurve-chart .spectrum-axis-label { fill: var(--foreground); font-size: 11px; font-family: var(--font-sans); }
+.spectrum-feature-line { cursor: pointer; }.spectrum-feature-line:hover line { stroke: #f4c76b; stroke-width: 2; }
 .chart-grid { stroke: rgb(255 255 255 / 7%); stroke-width: 1; }
 .chart-baseline { stroke: rgb(255 255 255 / 30%); stroke-dasharray: 4 4; }
 .chart-point { fill: #88aedc; stroke: #88aedc; opacity: 0.6; }.chart-point line { opacity: 0.4; }

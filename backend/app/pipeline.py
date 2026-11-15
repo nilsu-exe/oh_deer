@@ -414,6 +414,7 @@ def build_detector_stacks(
 
     det_summaries: List[Dict[str, Any]] = []
     det_coadds: Dict[int, np.ndarray] = {}
+    det_diffs: List[np.ndarray] = []
     for d in target_dets:
         lo_um, hi_um, label = DETECTOR_BANDS.get(d, (0.75, 5.0, f"Detector {d}"))
         flist = per_det_frames[d]
@@ -429,6 +430,7 @@ def build_detector_stacks(
                 "flags_breakdown": {},
                 "coadd_image": None,
                 "max_projection_image": None,
+                "epoch_diff_color_image": None,
             })
             continue
         stack = np.stack([f["array"] for f in flist])
@@ -437,6 +439,18 @@ def build_detector_stacks(
         det_coadds[d] = coadd_arr
         coadd_png = processing.encode_frames([coadd_arr], stretch=stretch)[0]
         max_png = processing.encode_frames([max_arr], stretch=stretch)[0]
+        diff_color_png = None
+        if len(flist) >= 2:
+            ep1_f, ep2_f = processing.split_epochs(flist)
+            if ep1_f and ep2_f:
+                ep1_a = _nanmean(np.stack([f["array"] for f in ep1_f]))
+                ep2_a = _nanmean(np.stack([f["array"] for f in ep2_f]))
+                d_arr = ep2_a - ep1_a
+                diff_color_png = processing.encode_diverging_png(d_arr)
+                finite_d = d_arr[np.isfinite(d_arr)]
+                if finite_d.size > 0:
+                    sc = float(np.percentile(np.abs(finite_d - np.median(finite_d)), 99.0)) or 1.0
+                    det_diffs.append((d_arr - float(np.median(finite_d))) / sc)
         mjds = [float(f["mjd"]) for f in flist if f.get("mjd") is not None]
         det_summaries.append({
             "det": d,
@@ -449,6 +463,7 @@ def build_detector_stacks(
             "flags_breakdown": _merge_flag_breakdowns(flist),
             "coadd_image": coadd_png,
             "max_projection_image": max_png,
+            "epoch_diff_color_image": diff_color_png,
         })
 
     # Combine normalized per-detector stacks into an all-detector deep white-light image
@@ -457,6 +472,10 @@ def build_detector_stacks(
         norm_stacks = [processing.normalize_array(arr, stretch="linear") for arr in det_coadds.values()]
         deep_arr = _nanmean(np.stack(norm_stacks))
         all_coadd_png = processing.encode_frames([deep_arr], stretch=stretch)[0]
+
+    epoch_diff_all_png = None
+    if det_diffs:
+        epoch_diff_all_png = processing.encode_diverging_png(_nanmean(np.stack(det_diffs)))
 
     # Build False-Color Infrared RGB composite:
     # Blue = D1/D2 (0.75-1.62 um), Green = D3/D4 (1.63-3.82 um), Red = D5/D6 (3.83-5.00 um)
@@ -483,6 +502,23 @@ def build_detector_stacks(
         g_arr = det_coadds[mid]
 
     rgb_png = processing.encode_rgb_png(r_arr, g_arr, b_arr, stretch=stretch)
+    # Pairwise 2-band RGB composites & tinted detector-pair stacks
+    blue_pair_png = processing.encode_rgb_png(None, b_arr * 0.45 if b_arr is not None else None, b_arr, stretch=stretch) if b_arr is not None else None
+    green_pair_png = processing.encode_rgb_png(g_arr * 0.20 if g_arr is not None else None, g_arr, g_arr * 0.35 if g_arr is not None else None, stretch=stretch) if g_arr is not None else None
+    red_pair_png = processing.encode_rgb_png(r_arr, r_arr * 0.35 if r_arr is not None else None, None, stretch=stretch) if r_arr is not None else None
+    bichrome_short_long_png = (
+        processing.encode_rgb_png(r_arr, _nanmean(np.stack([b_arr, r_arr])) * 0.5, b_arr, stretch=stretch)
+        if (b_arr is not None and r_arr is not None) else None
+    )
+    bichrome_short_mid_png = (
+        processing.encode_rgb_png(g_arr, g_arr * 0.75, b_arr, stretch=stretch)
+        if (b_arr is not None and g_arr is not None) else None
+    )
+    bichrome_mid_long_png = (
+        processing.encode_rgb_png(r_arr, g_arr, g_arr * 0.65, stretch=stretch)
+        if (g_arr is not None and r_arr is not None) else None
+    )
+
     n = shape[0]
     return {
         "query": {
@@ -503,7 +539,14 @@ def build_detector_stacks(
         },
         "detectors": det_summaries,
         "all_detectors_coadd_image": all_coadd_png,
+        "epoch_diff_color_image": epoch_diff_all_png,
         "false_color_rgb_image": rgb_png,
+        "blue_pair_image": blue_pair_png,
+        "green_pair_image": green_pair_png,
+        "red_pair_image": red_pair_png,
+        "bichrome_short_long_image": bichrome_short_long_png,
+        "bichrome_short_mid_image": bichrome_short_mid_png,
+        "bichrome_mid_long_image": bichrome_mid_long_png,
         "rgb_channels": {
             "blue_short_nir_dets": b_dets,
             "green_mid_nir_dets": g_dets,
